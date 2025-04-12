@@ -20,6 +20,10 @@ try {
     $mainScript = "$tempFolder\Windows10DebloaterGUI.ps1"
     Invoke-RestMethod -Uri $DebloaterURL -OutFile $mainScript
     
+    # Cargar ensamblados necesarios para evitar ambigüedad con Font
+    Add-Type -AssemblyName System.Windows.Forms
+    Add-Type -AssemblyName PresentationFramework
+
     # Ejecutar el script
     Write-Host "Iniciando Windows10DebloaterGUI..." -ForegroundColor Green
     & $mainScript
