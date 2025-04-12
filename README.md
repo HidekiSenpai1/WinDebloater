@@ -1,7 +1,7 @@
 # 🧹 WinDebloater
 
 <div align="center">
-  <img src="https://raw.githubusercontent.com/hidekisenpai1/WinDebloater/main/assets/logo.png" alt="WinDebloater Logo" width="200">
+  <img src="https://raw.githubusercontent.com/hidekisenpai1/WinDebloater/main/assets/logo.jpg" alt="WinDebloater Logo" width="200">
   <br>
   <h3>Una herramienta potente para limpiar y optimizar Windows 10/11</h3>
   
