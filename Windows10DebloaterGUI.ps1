@@ -1,4 +1,22 @@
-﻿Write-Host "╔════════════════════════════════════════════════╗" -ForegroundColor Cyan
+﻿<#
+    Windows 10/11 Debloater GUI
+    
+    Copyright 2025 Hideki
+    
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+    
+        http://www.apache.org/licenses/LICENSE-2.0
+    
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+#>
+
+Write-Host "╔════════════════════════════════════════════════╗" -ForegroundColor Cyan
 Write-Host "║          Windows 10/11 Debloater GUI           ║" -ForegroundColor Cyan
 Write-Host "║                                                ║" -ForegroundColor Cyan
 Write-Host "║  Made by:              Hideki <3               ║" -ForegroundColor Cyan
@@ -261,36 +279,52 @@ $global:WhiteListedAppsRegex = $global:WhiteListedApps -join '|'
 
 # Function to fix WhiteListed Apps that were removed
 Function FixWhitelistedApps {
-    Write-Host "Checking if any Whitelisted Apps were removed, and if so re-adding them..."
+    Write-Host "Comprobando si se eliminaron aplicaciones de la lista blanca y restaurándolas..." -ForegroundColor Cyan
     
-    # Get all provisioned packages
+    # Obtener todas las aplicaciones aprovisionadas
     $Packages = Get-AppxProvisionedPackage -Online
     
-    # Get all whitelisted apps that were removed
-    $WhitelistedApps = Get-AppxPackage -AllUsers | Where-Object {$_.Name -match $global:WhiteListedAppsRegex}
+    # Obtener todas las aplicaciones de la lista blanca que fueron eliminadas
+    $WhitelistedApps = $global:WhiteListedApps
+    $InstalledApps = Get-AppxPackage -AllUsers | Select-Object -ExpandProperty Name
     
-    # Loop through the list of whitelisted apps and if they aren't installed, try to restore them
+    $restoredCount = 0
+    $failedCount = 0
+    
+    # Recorrer la lista de aplicaciones de la lista blanca
     foreach ($App in $WhitelistedApps) {
-        $AppName = $App.Name
-        $PackageName = $App.PackageFullName
+        # Usar expresión regular para buscar coincidencias
+        $MatchingApps = $InstalledApps | Where-Object { $_ -match $App }
         
-        # Check if the app is installed
-        if (!(Get-AppxPackage -Name $AppName)) {
-            # Check if the app is available in provisioned packages
-            $ProvisionedPackage = $Packages | Where-Object {$_.DisplayName -eq $AppName}
+        if ($MatchingApps.Count -eq 0) {
+            # Buscar en los paquetes aprovisionados
+            $MatchingProvisionedApps = $Packages | Where-Object { $_.DisplayName -match $App }
             
-            if ($ProvisionedPackage) {
-                try {
-                    Write-Host "Re-adding $AppName..."
-                    Add-AppxPackage -DisableDevelopmentMode -Register "$($ProvisionedPackage.InstallLocation)\AppXManifest.xml"
-                } catch {
-                    Write-Warning "Failed to restore $AppName."
+            if ($MatchingProvisionedApps.Count -gt 0) {
+                foreach ($ProvisionedApp in $MatchingProvisionedApps) {
+                    try {
+                        Write-Host "Restaurando $($ProvisionedApp.DisplayName)..." -ForegroundColor Yellow
+                        Add-AppxPackage -DisableDevelopmentMode -Register "$($ProvisionedApp.InstallLocation)\AppXManifest.xml" -ErrorAction Stop
+                        $restoredCount++
+                    } catch {
+                        Write-Warning "Error al restaurar $($ProvisionedApp.DisplayName): $_"
+                        $failedCount++
+                    }
                 }
             } else {
-                Write-Warning "$AppName was not found in provisioned packages."
+                # Intentar reinstalar desde la tienda si está disponible
+                try {
+                    # Esto es solo un ejemplo, la reinstalación desde la tienda requiere más lógica
+                    Write-Host "La aplicación $App no se encontró en los paquetes aprovisionados. Intenta reinstalarla desde la Microsoft Store." -ForegroundColor Yellow
+                } catch {
+                    Write-Warning "No se pudo encontrar información para reinstalar $App"
+                    $failedCount++
+                }
             }
         }
     }
+    
+    Write-Host "Proceso de restauración completado: $restoredCount aplicaciones restauradas, $failedCount fallos." -ForegroundColor Green
 }
 
 # Add a new function to handle Windows 11 specific features
@@ -330,56 +364,161 @@ Function HandleWindows11Features {
     }
 }
 
+Function CheckForUpdates {
+    try {
+        $repoUrl = "https://api.github.com/repos/hidekisenpai1/WinDebloater/releases/latest"
+        $currentVersion = "1.0.0" # Cambia esto a tu versión actual
+        
+        Write-Host "Verificando actualizaciones..." -ForegroundColor Cyan
+        $latestRelease = Invoke-RestMethod -Uri $repoUrl -Method Get -ErrorAction Stop
+        $latestVersion = $latestRelease.tag_name
+        
+        if ($latestVersion -gt $currentVersion) {
+            $updateMsg = "Hay una nueva versión disponible: $latestVersion`nTu versión actual es: $currentVersion"
+            $updatePrompt = [System.Windows.MessageBox]::Show($updateMsg, "Actualización disponible", [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Information)
+            
+            if ($updatePrompt -eq 'Yes') {
+                Start-Process $latestRelease.html_url
+            }
+        } else {
+            Write-Host "Estás utilizando la última versión." -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "No se pudo verificar actualizaciones: $_" -ForegroundColor Yellow
+    }
+}
+
+Function BackupRegistry {
+    $backupFolder = "$env:USERPROFILE\Desktop\WinDebloater_Backup"
+    $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+    $backupFile = "$backupFolder\registry_backup_$timestamp.reg"
+    
+    if (!(Test-Path $backupFolder)) {
+        New-Item -Path $backupFolder -ItemType Directory -Force | Out-Null
+    }
+    
+    try {
+        Write-Host "Creando copia de seguridad del registro en: $backupFile" -ForegroundColor Cyan
+        $regExportProcess = Start-Process -FilePath "reg.exe" -ArgumentList "export HKLM $backupFile /y" -NoNewWindow -PassThru -Wait
+        Start-Process -FilePath "reg.exe" -ArgumentList "export HKCU $backupFile /y" -NoNewWindow -PassThru -Wait
+        
+        if ($regExportProcess.ExitCode -eq 0) {
+            Write-Host "Copia de seguridad del registro creada correctamente." -ForegroundColor Green
+            return $true
+        } else {
+            Write-Host "Error al crear la copia de seguridad del registro." -ForegroundColor Red
+            return $false
+        }
+    } catch {
+        Write-Host "Error al crear la copia de seguridad del registro: $_" -ForegroundColor Red
+        return $false
+    }
+}
+
+Function CleanTempFiles {
+    Write-Host "Limpiando archivos temporales..." -ForegroundColor Cyan
+    
+    $tempFolders = @(
+        "$env:TEMP",
+        "$env:SystemRoot\Temp",
+        "$env:SystemRoot\Prefetch",
+        "$env:SystemRoot\SoftwareDistribution\Download"
+    )
+    
+    $totalCleaned = 0
+    
+    foreach ($folder in $tempFolders) {
+        if (Test-Path $folder) {
+            $folderSize = (Get-ChildItem -Path $folder -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum / 1MB
+            $folderSize = [math]::Round($folderSize, 2)
+            
+            Write-Host "Limpiando $folder ($folderSize MB)..." -ForegroundColor Yellow
+            
+            try {
+                Get-ChildItem -Path $folder -Recurse -Force -ErrorAction SilentlyContinue | 
+                    Where-Object { ($_.CreationTime -lt (Get-Date).AddDays(-2)) -and (!$_.PSIsContainer) } | 
+                    Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
+                
+                $totalCleaned += $folderSize
+            } catch {
+                Write-Warning "Error al limpiar $folder"
+            }
+        }
+    }
+    
+    Write-Host "Limpieza completada. Se liberaron aproximadamente $totalCleaned MB de espacio." -ForegroundColor Green
+}
+
 # This form was created using POSHGUI.com  a free online gui designer for PowerShell
 Add-Type -AssemblyName System.Windows.Forms
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 $Form                            = New-Object system.Windows.Forms.Form
-$Form.ClientSize                 = New-Object System.Drawing.Point(500,570)
+$Form.ClientSize                 = New-Object System.Drawing.Point(500,650)
 $Form.StartPosition              = 'CenterScreen'
 $Form.FormBorderStyle            = 'FixedSingle'
 $Form.MinimizeBox                = $false
 $Form.MaximizeBox                = $false
 $Form.ShowIcon                   = $false
-$Form.text                       = "Windows10Debloater"
+$Form.text                       = "Windows 10/11 Debloater - by Hideki"
 $Form.TopMost                    = $false
-$Form.BackColor                  = [System.Drawing.ColorTranslator]::FromHtml("#252525")
+$Form.BackColor                  = [System.Drawing.ColorTranslator]::FromHtml("#1E1E1E")
 
 $DebloatPanel                    = New-Object system.Windows.Forms.Panel
 $DebloatPanel.height             = 160
 $DebloatPanel.width              = 480
 $DebloatPanel.Anchor             = 'top,right,left'
 $DebloatPanel.location           = New-Object System.Drawing.Point(10,10)
+$DebloatPanel.BorderStyle        = 'FixedSingle'
 
 $RegistryPanel                   = New-Object system.Windows.Forms.Panel
 $RegistryPanel.height            = 80
 $RegistryPanel.width             = 480
 $RegistryPanel.Anchor            = 'top,right,left'
 $RegistryPanel.location          = New-Object System.Drawing.Point(10,180)
+$RegistryPanel.BorderStyle       = 'FixedSingle'
 
 $CortanaPanel                    = New-Object system.Windows.Forms.Panel
 $CortanaPanel.height             = 120
 $CortanaPanel.width              = 153
 $CortanaPanel.Anchor             = 'top,right,left'
 $CortanaPanel.location           = New-Object System.Drawing.Point(10,270)
+$CortanaPanel.BorderStyle        = 'FixedSingle'
 
 $EdgePanel                       = New-Object system.Windows.Forms.Panel
 $EdgePanel.height                = 120
 $EdgePanel.width                 = 154
 $EdgePanel.Anchor                = 'top,right,left'
 $EdgePanel.location              = New-Object System.Drawing.Point(173,270)
+$EdgePanel.BorderStyle           = 'FixedSingle'
 
 $DarkThemePanel                  = New-Object system.Windows.Forms.Panel
 $DarkThemePanel.height           = 120
 $DarkThemePanel.width            = 153
 $DarkThemePanel.Anchor           = 'top,right,left'
 $DarkThemePanel.location         = New-Object System.Drawing.Point(337,270)
+$DarkThemePanel.BorderStyle      = 'FixedSingle'
 
 $OtherPanel                      = New-Object system.Windows.Forms.Panel
-$OtherPanel.height               = 160
+$OtherPanel.height               = 240
 $OtherPanel.width                = 480
 $OtherPanel.Anchor               = 'top,right,left'
 $OtherPanel.location             = New-Object System.Drawing.Point(10,400)
+$OtherPanel.BorderStyle          = 'FixedSingle'
+
+$CheckUpdates                    = New-Object system.Windows.Forms.Button
+$CheckUpdates.FlatStyle          = 'Flat'
+$CheckUpdates.text               = "VERIFICAR ACTUALIZACIONES"
+$CheckUpdates.width              = 460
+$CheckUpdates.height             = 30
+$CheckUpdates.Anchor             = 'top,right,left'
+$CheckUpdates.location           = New-Object System.Drawing.Point(10,600)
+$CheckUpdates.Font               = New-Object System.Drawing.Font('Consolas',9,"Bold")
+$CheckUpdates.ForeColor          = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
+$CheckUpdates.BackColor          = [System.Drawing.ColorTranslator]::FromHtml("#0063B1")
+$CheckUpdates.Add_Click({ 
+    CheckForUpdates
+})
 
 $Debloat                         = New-Object system.Windows.Forms.Label
 $Debloat.text                    = "DEBLOAT OPTIONS"
@@ -399,7 +538,8 @@ $CustomizeBlacklist.height      = 30
 $CustomizeBlacklist.Anchor      = 'top,right,left'
 $CustomizeBlacklist.location    = New-Object System.Drawing.Point(10,40)
 $CustomizeBlacklist.Font        = New-Object System.Drawing.Font('Consolas',9)
-$CustomizeBlacklist.ForeColor   = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
+$CustomizeBlacklist.ForeColor   = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
+$CustomizeBlacklist.BackColor   = [System.Drawing.ColorTranslator]::FromHtml("#2b5797")
 
 $RemoveAllBloatware              = New-Object system.Windows.Forms.Button
 $RemoveAllBloatware.FlatStyle    = 'Flat'
@@ -408,8 +548,9 @@ $RemoveAllBloatware.width        = 460
 $RemoveAllBloatware.height       = 30
 $RemoveAllBloatware.Anchor       = 'top,right,left'
 $RemoveAllBloatware.location     = New-Object System.Drawing.Point(10,80)
-$RemoveAllBloatware.Font         = New-Object System.Drawing.Font('Consolas',9)
-$RemoveAllBloatware.ForeColor    = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
+$RemoveAllBloatware.Font         = New-Object System.Drawing.Font('Consolas',9,"Bold")
+$RemoveAllBloatware.ForeColor    = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
+$RemoveAllBloatware.BackColor    = [System.Drawing.ColorTranslator]::FromHtml("#c50f1f")
 
 $RemoveBlacklistedBloatware                 = New-Object system.Windows.Forms.Button
 $RemoveBlacklistedBloatware.FlatStyle       = 'Flat'
@@ -419,7 +560,8 @@ $RemoveBlacklistedBloatware.height          = 30
 $RemoveBlacklistedBloatware.Anchor          = 'top,right,left'
 $RemoveBlacklistedBloatware.location        = New-Object System.Drawing.Point(10,120)
 $RemoveBlacklistedBloatware.Font            = New-Object System.Drawing.Font('Consolas',9)
-$RemoveBlacklistedBloatware.ForeColor       = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
+$RemoveBlacklistedBloatware.ForeColor       = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
+$RemoveBlacklistedBloatware.BackColor       = [System.Drawing.ColorTranslator]::FromHtml("#107c10")
 
 $Registry                        = New-Object system.Windows.Forms.Label
 $Registry.text                   = "REGISTRY CHANGES"
@@ -438,8 +580,9 @@ $RevertChanges.width              = 460
 $RevertChanges.height             = 30
 $RevertChanges.Anchor             = 'top,right,left'
 $RevertChanges.location           = New-Object System.Drawing.Point(10,40)
-$RevertChanges.Font               = New-Object System.Drawing.Font('Consolas',9)
-$RevertChanges.ForeColor          = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
+$RevertChanges.Font               = New-Object System.Drawing.Font('Consolas',9,"Bold")
+$RevertChanges.ForeColor          = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
+$RevertChanges.BackColor          = [System.Drawing.ColorTranslator]::FromHtml("#5c2d91")
 
 $Cortana                         = New-Object system.Windows.Forms.Label
 $Cortana.text                    = "CORTANA"
@@ -621,13 +764,30 @@ $Win11Features.Add_Click({
     Write-Host "Proceso completado!"
 })
 
-$Form.controls.AddRange(@($RegistryPanel,$DebloatPanel,$CortanaPanel,$EdgePanel,$DarkThemePanel,$OtherPanel))
+# Añade un botón para esta función
+$CleanTemp                       = New-Object system.Windows.Forms.Button
+$CleanTemp.FlatStyle             = 'Flat'
+$CleanTemp.text                  = "LIMPIAR ARCHIVOS TEMPORALES"
+$CleanTemp.width                 = 460
+$CleanTemp.height                = 30
+$CleanTemp.Anchor                = 'top,right,left'
+$CleanTemp.location              = New-Object System.Drawing.Point(10,200)
+$CleanTemp.Font                  = New-Object System.Drawing.Font('Consolas',9,"Bold")
+$CleanTemp.ForeColor             = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
+$CleanTemp.BackColor             = [System.Drawing.ColorTranslator]::FromHtml("#0078d7")
+$CleanTemp.Add_Click({ 
+    Write-Host "`n`n`n`n`n`n`n`n`n`n`n`n`n`n`n`n`nLimpiando archivos temporales...`n"
+    CleanTempFiles
+    Write-Host "Limpieza completada!"
+})
+
+$Form.controls.AddRange(@($RegistryPanel,$DebloatPanel,$CortanaPanel,$EdgePanel,$DarkThemePanel,$OtherPanel,$CheckUpdates))
 $DebloatPanel.controls.AddRange(@($Debloat,$CustomizeBlacklist,$RemoveAllBloatware,$RemoveBlacklistedBloatware))
 $RegistryPanel.controls.AddRange(@($Registry,$RevertChanges))
 $CortanaPanel.controls.AddRange(@($Cortana,$EnableCortana,$DisableCortana))
 $EdgePanel.controls.AddRange(@($EnableEdgePDFTakeover,$DisableEdgePDFTakeover,$Edge))
 $DarkThemePanel.controls.AddRange(@($Theme,$DisableDarkMode,$EnableDarkMode))
-$OtherPanel.controls.AddRange(@($Other,$RemoveOnedrive,$UnpinStartMenuTiles,$DisableTelemetry,$RemoveRegkeys,$RestoreWhitelistedApps,$InstallNet35,$Win11Features))
+$OtherPanel.controls.AddRange(@($Other,$RemoveOnedrive,$UnpinStartMenuTiles,$DisableTelemetry,$RemoveRegkeys,$RestoreWhitelistedApps,$InstallNet35,$Win11Features,$CleanTemp))
 
 $DebloatFolder = "C:\Temp\Windows10Debloater"
 If (Test-Path $DebloatFolder) {
