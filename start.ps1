@@ -22,9 +22,10 @@ try {
     
     # Cargar ensamblados necesarios para evitar ambigüedad con Font
     Add-Type -AssemblyName System.Windows.Forms
+    Add-Type -AssemblyName System.Drawing
     Add-Type -AssemblyName PresentationFramework
-
-    # Ejecutar el script
+    
+    # Ejecutar el script con parámetros explícitos para evitar ambigüedades
     Write-Host "Iniciando Windows10DebloaterGUI..." -ForegroundColor Green
     & $mainScript
 }
