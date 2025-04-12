@@ -6,7 +6,7 @@
   <h3>Una herramienta potente para limpiar y optimizar Windows 10/11</h3>
   
   ![GitHub stars](https://img.shields.io/github/stars/hidekisenpai1/WinDebloater?style=social)
-  ![License](https://img.shields.io/badge/license-MIT-blue)
+  ![License](https://img.shields.io/badge/license-Apache%202.0-blue)
   ![Windows](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-brightgreen)
 </div>
 
@@ -29,3 +29,4 @@ Ejecuta el siguiente comando en PowerShell (como administrador):
 
 ```powershell
 irm https://raw.githubusercontent.com/hidekisenpai1/WinDebloater/main/start.ps1 | iex
+```
