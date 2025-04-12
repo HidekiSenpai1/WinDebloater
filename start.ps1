@@ -5,7 +5,6 @@ if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
     Exit
 }
 
-# Script de inicio para Windows10DebloaterGUI
 $DebloaterURL = "https://raw.githubusercontent.com/hidekisenpai1/WinDebloater/main/Windows10DebloaterGUI.ps1"
 
 Write-Host "Descargando Windows10DebloaterGUI..." -ForegroundColor Cyan
@@ -25,10 +24,25 @@ try {
     Add-Type -AssemblyName System.Drawing
     Add-Type -AssemblyName PresentationFramework
     
-    # Ejecutar el script con parámetros explícitos para evitar ambigüedades
+    # Corregir el problema de ambigüedad de Font en el script
+    Write-Host "Corrigiendo problemas de compatibilidad..." -ForegroundColor Yellow
+    $content = Get-Content -Path $mainScript -Raw
+    
+    # Reemplazar todas las instancias de Font con "Bold" como string por la versión con FontStyle
+    $content = $content -replace 'New-Object System\.Drawing\.Font\(''Consolas'',9,"Bold"\)', 'New-Object System.Drawing.Font(''Consolas'',9,[System.Drawing.FontStyle]::Bold)'
+    $content = $content -replace 'New-Object System\.Drawing\.Font\(''Consolas'',\d+,"Bold"\)', 'New-Object System.Drawing.Font(''Consolas'',9,[System.Drawing.FontStyle]::Bold)'
+    
+    # Guardar el script modificado
+    $content | Set-Content -Path $mainScript -Force
+    
+    # Ejecutar el script
     Write-Host "Iniciando Windows10DebloaterGUI..." -ForegroundColor Green
     & $mainScript
+    
+    Write-Host "\nScript ejecutado correctamente." -ForegroundColor Green
 }
 catch {
     Write-Host "Error al descargar o ejecutar el script: $_" -ForegroundColor Red
+    Write-Host "Presione cualquier tecla para salir..."
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
 }

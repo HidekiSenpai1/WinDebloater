@@ -27,10 +27,6 @@ Write-Host ""
 
 $ErrorActionPreference = 'SilentlyContinue'
 
-# Add Windows Forms and Windows Presentation Foundation assemblies
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName PresentationFramework
-
 #Unnecessary Windows 10 AppX apps that will be removed by the blacklist.
 $global:Bloatware = @(
     # Original bloatware list
