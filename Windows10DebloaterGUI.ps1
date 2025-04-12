@@ -31,48 +31,6 @@ $ErrorActionPreference = 'SilentlyContinue'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName PresentationFramework
 
-# Check for administrative rights and self-elevate if needed
-$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]'Administrator')
-
-if (-not $isAdmin) {
-    $Button = [System.Windows.MessageBoxButton]::YesNoCancel
-    $WarningIco = [System.Windows.MessageBoxImage]::Warning
-    $Ask = @"
-This script requires administrator privileges to function properly.
-
-• Select "Yes" to run as Administrator
-• Select "No" to continue without privileges (some features won't work)
-• Select "Cancel" to stop the script
-"@
-
-    $Prompt = [System.Windows.MessageBox]::Show($Ask, "Run as Administrator", $Button, $WarningIco) 
-    
-    Switch ($Prompt) {
-        Yes {
-            try {
-                Write-Host "Elevating to Administrator privileges..."
-                Start-Process PowerShell.exe -ArgumentList ("-NoProfile -ExecutionPolicy Bypass -File `"{0}`"" -f $PSCommandPath) -Verb RunAs
-                Exit
-            }
-            catch {
-                [System.Windows.MessageBox]::Show("Failed to elevate to administrator privileges: $_", "Error", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
-                Exit
-            }
-        }
-        No {
-            Write-Warning "Running without administrator privileges. Some features will not be available."
-        }
-        Cancel {
-            Write-Host "Operation cancelled by user."
-            Exit
-        }
-    }
-}
-else {
-    Write-Host "Running with administrator privileges."
-}
-
-
 #Unnecessary Windows 10 AppX apps that will be removed by the blacklist.
 $global:Bloatware = @(
     # Original bloatware list
