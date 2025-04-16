@@ -90,7 +90,15 @@ function Start-Debloater {
     # Comprobar si se está ejecutando como administrador
     if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
         # Relanzar como administrador
-        Start-Process powershell.exe "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
+        # Detectar si se está ejecutando desde un archivo o desde memoria (irm | iex)
+        if ([string]::IsNullOrEmpty($PSCommandPath)) {
+            # Ejecutando desde memoria (irm | iex)
+            $startUrl = "https://raw.githubusercontent.com/hidekisenpai1/WinDebloater/main/start.ps1"
+            Start-Process powershell.exe "-NoProfile -Command `"Invoke-RestMethod -Uri '$startUrl' | Invoke-Expression`"" -Verb RunAs
+        } else {
+            # Ejecutando desde un archivo
+            Start-Process powershell.exe "-NoProfile -File `"$PSCommandPath`"" -Verb RunAs
+        }
         Exit
     }
     
