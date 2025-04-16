@@ -1,5 +1,5 @@
 <!-- Open Graph Preview -->
-<meta property="og:image" content="https://raw.githubusercontent.com/HidekiSenpai1/WinDebloater/refs/heads/main/assets/logo.jpg" />
+<meta property="og:image" content="https://raw.githubusercontent.com/HidekiSenpai1/WinDebloater/refs/heads/main/assets/og_image.jpg" />
 <meta property="og:title" content="🧹 WinDebloater" />
 <meta property="og:description" content="Herramienta para quitar bloatware y limpiar Windows" />
 
