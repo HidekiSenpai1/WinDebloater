@@ -1,7 +1,12 @@
+<!-- Open Graph Preview -->
+<meta property="og:image" content="https://raw.githubusercontent.com/HidekiSenpai1/WinDebloater/refs/heads/main/assets/logo.jpg" />
+<meta property="og:title" content="🧹 WinDebloater" />
+<meta property="og:description" content="Herramienta para quitar bloatware y limpiar Windows" />
+
 # 🧹 WinDebloater
 
 <div align="center">
-  <img src="https://github.com/HidekiSenpai1/WinDebloater/blob/main/assets/logo.jpg" alt="WinDebloater Logo" width="200">
+  <img src="https://raw.githubusercontent.com/HidekiSenpai1/WinDebloater/refs/heads/main/assets/logo.jpg" alt="WinDebloater Logo" width="200">
   <br>
   <h3>Una herramienta potente para limpiar y optimizar Windows 10/11</h3>
   <h3>A powerful tool to clean and optimize Windows 10/11</h3>
