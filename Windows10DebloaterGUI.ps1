@@ -1708,35 +1708,50 @@ $RemoveRegkeys.Add_Click( {
         $Keys = @(
             
             New-PSDrive  HKCR -PSProvider Registry -Root HKEY_CLASSES_ROOT
-            #Remove Background Tasks
-            "HKCR:\Extensions\ContractId\Windows.BackgroundTasks\PackageId\46928bounde.EclipseManager_2.2.4.51_neutral__a5h4egax66k6y"
-            "HKCR:\Extensions\ContractId\Windows.BackgroundTasks\PackageId\ActiproSoftwareLLC.562882FEEB491_2.6.18.18_neutral__24pqs290vpjk0"
-            "HKCR:\Extensions\ContractId\Windows.BackgroundTasks\PackageId\Microsoft.MicrosoftOfficeHub_17.7909.7600.0_x64__8wekyb3d8bbwe"
-            "HKCR:\Extensions\ContractId\Windows.BackgroundTasks\PackageId\Microsoft.PPIProjection_10.0.15063.0_neutral_neutral_cw5n1h2txyewy"
-            "HKCR:\Extensions\ContractId\Windows.BackgroundTasks\PackageId\Microsoft.XboxGameCallableUI_1000.15063.0.0_neutral_neutral_cw5n1h2txyewy"
-            "HKCR:\Extensions\ContractId\Windows.BackgroundTasks\PackageId\Microsoft.XboxGameCallableUI_1000.16299.15.0_neutral_neutral_cw5n1h2txyewy"
             
-            #Windows File
-            "HKCR:\Extensions\ContractId\Windows.File\PackageId\ActiproSoftwareLLC.562882FEEB491_2.6.18.18_neutral__24pqs290vpjk0"
+            # Telemetría y recopilación de datos
+            "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection"
+            "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection"
+            "HKLM:\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Policies\DataCollection"
+            "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\AdvertisingInfo"
             
-            #Registry keys to delete if they aren't uninstalled by RemoveAppXPackage/RemoveAppXProvisionedPackage
-            "HKCR:\Extensions\ContractId\Windows.Launch\PackageId\46928bounde.EclipseManager_2.2.4.51_neutral__a5h4egax66k6y"
-            "HKCR:\Extensions\ContractId\Windows.Launch\PackageId\ActiproSoftwareLLC.562882FEEB491_2.6.18.18_neutral__24pqs290vpjk0"
-            "HKCR:\Extensions\ContractId\Windows.Launch\PackageId\Microsoft.PPIProjection_10.0.15063.0_neutral_neutral_cw5n1h2txyewy"
-            "HKCR:\Extensions\ContractId\Windows.Launch\PackageId\Microsoft.XboxGameCallableUI_1000.15063.0.0_neutral_neutral_cw5n1h2txyewy"
-            "HKCR:\Extensions\ContractId\Windows.Launch\PackageId\Microsoft.XboxGameCallableUI_1000.16299.15.0_neutral_neutral_cw5n1h2txyewy"
+            # Cortana y búsqueda de Windows
+            "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search"
+            "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Search"
+            "HKCU:\SOFTWARE\Microsoft\Personalization\Settings"
             
-            #Scheduled Tasks to delete
-            "HKCR:\Extensions\ContractId\Windows.PreInstalledConfigTask\PackageId\Microsoft.MicrosoftOfficeHub_17.7909.7600.0_x64__8wekyb3d8bbwe"
+            # Aplicaciones preinstaladas y sugerencias
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager"
+            "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent"
+            "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced\People"
             
-            #Windows Protocol Keys
-            "HKCR:\Extensions\ContractId\Windows.Protocol\PackageId\ActiproSoftwareLLC.562882FEEB491_2.6.18.18_neutral__24pqs290vpjk0"
-            "HKCR:\Extensions\ContractId\Windows.Protocol\PackageId\Microsoft.PPIProjection_10.0.15063.0_neutral_neutral_cw5n1h2txyewy"
-            "HKCR:\Extensions\ContractId\Windows.Protocol\PackageId\Microsoft.XboxGameCallableUI_1000.15063.0.0_neutral_neutral_cw5n1h2txyewy"
-            "HKCR:\Extensions\ContractId\Windows.Protocol\PackageId\Microsoft.XboxGameCallableUI_1000.16299.15.0_neutral_neutral_cw5n1h2txyewy"
-               
-            #Windows Share Target
-            "HKCR:\Extensions\ContractId\Windows.ShareTarget\PackageId\ActiproSoftwareLLC.562882FEEB491_2.6.18.18_neutral__24pqs290vpjk0"
+            # Servicios de ubicación
+            "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Sensor\Overrides\{BFA794E4-F964-4FDB-90F6-51056BFE4B44}"
+            "HKLM:\SYSTEM\CurrentControlSet\Services\lfsvc\Service\Configuration"
+            
+            # OneDrive
+            "HKCR:\CLSID\{018D5C66-4533-4307-9B53-224DE2ED1FE6}"
+            "HKCR:\Wow6432Node\CLSID\{018D5C66-4533-4307-9B53-224DE2ED1FE6}"
+            
+            # Xbox y juegos
+            "HKCU:\System\GameConfigStore"
+            "HKLM:\SOFTWARE\Policies\Microsoft\Windows\GameDVR"
+            "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\GameDVR"
+            
+            # Aplicaciones UWP problemáticas
+            "HKCR:\Extensions\ContractId\Windows.BackgroundTasks\PackageId\Microsoft.MicrosoftEdge_8wekyb3d8bbwe"
+            "HKCR:\Extensions\ContractId\Windows.BackgroundTasks\PackageId\Microsoft.YourPhone_8wekyb3d8bbwe"
+            "HKCR:\Extensions\ContractId\Windows.BackgroundTasks\PackageId\Microsoft.Windows.Cortana_cw5n1h2txyewy"
+            
+            # Servicios de sincronización y notificaciones
+            "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\PushNotifications"
+            "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\DeviceAccess\Global\{BFA794E4-F964-4FDB-90F6-51056BFE4B44}"
+            "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\DeviceAccess\Global\{E5323777-F976-4f5b-9B55-B94699C46E44}"
+            
+            # Servicios de diagnóstico
+            "HKLM:\SYSTEM\CurrentControlSet\Services\DiagTrack"
+            "HKLM:\SYSTEM\CurrentControlSet\Services\dmwappushservice"
+            "HKLM:\SYSTEM\CurrentControlSet\Control\WMI\AutoLogger\AutoLogger-Diagtrack-Listener"
         )
         
         #This writes the output of each key it is removing and also removes the keys listed above.
