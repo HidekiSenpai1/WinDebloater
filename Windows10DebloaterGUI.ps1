@@ -231,6 +231,40 @@ dotInclude 'custom-lists.ps1'
 $global:BloatwareRegex = $global:Bloatware -join '|'
 $global:WhiteListedAppsRegex = $global:WhiteListedApps -join '|'
 
+# Función para manejar errores de forma centralizada
+Function Handle-Error {
+    param (
+        [string]$Operation,
+        [string]$ItemName,
+        [System.Management.Automation.ErrorRecord]$ErrorRecord,
+        [ref]$FailedCounter
+    )
+    
+    Write-Warning "Error al $Operation ${ItemName}: $ErrorRecord"
+    if ($null -ne $FailedCounter) {
+        $FailedCounter.Value++
+    }
+}
+
+# Función para restaurar una aplicación específica
+Function Restore-AppPackage {
+    param (
+        [object]$ProvisionedApp,
+        [ref]$RestoredCounter,
+        [ref]$FailedCounter
+    )
+    
+    try {
+        Write-Host "Restaurando $($ProvisionedApp.DisplayName)..." -ForegroundColor Yellow
+        Add-AppxPackage -DisableDevelopmentMode -Register "$($ProvisionedApp.InstallLocation)\AppXManifest.xml" -ErrorAction Stop
+        $RestoredCounter.Value++
+        return $true
+    } catch {
+        Handle-Error -Operation "restaurar" -ItemName $ProvisionedApp.DisplayName -ErrorRecord $_ -FailedCounter $FailedCounter
+        return $false
+    }
+}
+
 # Function to fix WhiteListed Apps that were removed
 Function FixWhitelistedApps {
     Write-Host "Comprobando si se eliminaron aplicaciones de la lista blanca y restaurándolas..." -ForegroundColor Cyan
@@ -256,24 +290,11 @@ Function FixWhitelistedApps {
             
             if ($MatchingProvisionedApps.Count -gt 0) {
                 foreach ($ProvisionedApp in $MatchingProvisionedApps) {
-                    try {
-                        Write-Host "Restaurando $($ProvisionedApp.DisplayName)..." -ForegroundColor Yellow
-                        Add-AppxPackage -DisableDevelopmentMode -Register "$($ProvisionedApp.InstallLocation)\AppXManifest.xml" -ErrorAction Stop
-                        $restoredCount++
-                    } catch {
-                        Write-Warning "Error al restaurar $($ProvisionedApp.DisplayName): $_"
-                        $failedCount++
-                    }
+                    Restore-AppPackage -ProvisionedApp $ProvisionedApp -RestoredCounter ([ref]$restoredCount) -FailedCounter ([ref]$failedCount)
                 }
             } else {
                 # Intentar reinstalar desde la tienda si está disponible
-                try {
-                    # Esto es solo un ejemplo, la reinstalación desde la tienda requiere más lógica
-                    Write-Host "La aplicación $App no se encontró en los paquetes aprovisionados. Intenta reinstalarla desde la Microsoft Store." -ForegroundColor Yellow
-                } catch {
-                    Write-Warning "No se pudo encontrar información para reinstalar $App"
-                    $failedCount++
-                }
+                Write-Host "La aplicación $App no se encontró en los paquetes aprovisionados. Intenta reinstalarla desde la Microsoft Store." -ForegroundColor Yellow
             }
         }
     }
@@ -282,6 +303,32 @@ Function FixWhitelistedApps {
 }
 
 # Add a new function to handle Windows 11 specific features
+# Función para asegurar que existe una ruta de registro
+Function Ensure-RegistryPath {
+    param (
+        [string]$Path
+    )
+    
+    if (!(Test-Path $Path)) {
+        New-Item -Path $Path -Force | Out-Null
+        return $true
+    }
+    return $false
+}
+
+# Función para aplicar configuración de registro
+Function Set-RegistrySetting {
+    param (
+        [string]$Path,
+        [string]$Name,
+        [object]$Value,
+        [string]$Type
+    )
+    
+    Ensure-RegistryPath -Path $Path
+    Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type $Type
+}
+
 Function HandleWindows11Features {
     # Check if running on Windows 11
     $OSVersion = [System.Environment]::OSVersion.Version
@@ -292,25 +339,21 @@ Function HandleWindows11Features {
         
         # Restaurar el menú contextual clásico (menú del clic derecho)
         Write-Host "Restaurando el menú contextual clásico..."
-        if (!(Test-Path "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32")) {
-            New-Item -Path "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}" -Force | Out-Null
-            New-Item -Path "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32" -Force | Out-Null
-            Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32" -Name "(Default)" -Value "" -Type String
-        }
+        $contextMenuPath = "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}"
+        Ensure-RegistryPath -Path $contextMenuPath
+        Ensure-RegistryPath -Path "$contextMenuPath\InprocServer32"
+        Set-ItemProperty -Path "$contextMenuPath\InprocServer32" -Name "(Default)" -Value "" -Type String
+        
+        # Ruta común para configuraciones de la barra de tareas
+        $taskbarPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
         
         # Desactivar Widgets
         Write-Host "Desactivando Widgets..."
-        if (!(Test-Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced")) {
-            New-Item -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Force | Out-Null
-        }
-        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "TaskbarDa" -Value 0 -Type DWord
+        Set-RegistrySetting -Path $taskbarPath -Name "TaskbarDa" -Value 0 -Type DWord
         
         # Desactivar icono de Chat
         Write-Host "Desactivando icono de Chat..."
-        if (!(Test-Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced")) {
-            New-Item -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Force | Out-Null
-        }
-        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "TaskbarMn" -Value 0 -Type DWord
+        Set-RegistrySetting -Path $taskbarPath -Name "TaskbarMn" -Value 0 -Type DWord
         
         Write-Host "Ajustes de Windows 11 aplicados correctamente. Es necesario reiniciar el Explorador de Windows para que los cambios surtan efecto."
     } else {
@@ -318,27 +361,58 @@ Function HandleWindows11Features {
     }
 }
 
-Function CheckForUpdates {
+# Función para obtener la última versión desde GitHub
+Function Get-LatestVersion {
+    param (
+        [string]$RepoUrl
+    )
+    
     try {
-        $repoUrl = "https://api.github.com/repos/hidekisenpai1/WinDebloater/releases/latest"
-        $currentVersion = "1.0.0" # Cambia esto a tu versión actual
-        
-        Write-Host "Verificando actualizaciones..." -ForegroundColor Cyan
-        $latestRelease = Invoke-RestMethod -Uri $repoUrl -Method Get -ErrorAction Stop
+        $latestRelease = Invoke-RestMethod -Uri $RepoUrl -Method Get -ErrorAction Stop
+        return $latestRelease
+    } catch {
+        Handle-Error -Operation "obtener" -ItemName "información de versión" -ErrorRecord $_ -FailedCounter $null
+        return $null
+    }
+}
+
+# Función para comparar versiones y mostrar diálogo de actualización
+Function Show-UpdateDialog {
+    param (
+        [string]$CurrentVersion,
+        [string]$LatestVersion,
+        [string]$UpdateUrl
+    )
+    
+    $updateMsg = "Hay una nueva versión disponible: $LatestVersion`nTu versión actual es: $CurrentVersion"
+    $updatePrompt = [System.Windows.MessageBox]::Show($updateMsg, "Actualización disponible", [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Information)
+    
+    if ($updatePrompt -eq 'Yes') {
+        Start-Process $UpdateUrl
+        return $true
+    }
+    
+    return $false
+}
+
+Function CheckForUpdates {
+    $repoUrl = "https://api.github.com/repos/hidekisenpai1/WinDebloater/releases/latest"
+    $currentVersion = "1.0.0" # Cambia esto a tu versión actual
+    
+    Write-Host "Verificando actualizaciones..." -ForegroundColor Cyan
+    
+    $latestRelease = Get-LatestVersion -RepoUrl $repoUrl
+    
+    if ($null -ne $latestRelease) {
         $latestVersion = $latestRelease.tag_name
         
         if ($latestVersion -gt $currentVersion) {
-            $updateMsg = "Hay una nueva versión disponible: $latestVersion`nTu versión actual es: $currentVersion"
-            $updatePrompt = [System.Windows.MessageBox]::Show($updateMsg, "Actualización disponible", [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Information)
-            
-            if ($updatePrompt -eq 'Yes') {
-                Start-Process $latestRelease.html_url
-            }
+            Show-UpdateDialog -CurrentVersion $currentVersion -LatestVersion $latestVersion -UpdateUrl $latestRelease.html_url
         } else {
             Write-Host "Estás utilizando la última versión." -ForegroundColor Green
         }
-    } catch {
-        Write-Host "No se pudo verificar actualizaciones: $_" -ForegroundColor Yellow
+    } else {
+        Write-Host "No se pudo verificar actualizaciones." -ForegroundColor Yellow
     }
 }
 
@@ -369,6 +443,42 @@ Function BackupRegistry {
     }
 }
 
+# Función para calcular el tamaño de una carpeta en MB
+Function Get-FolderSizeMB {
+    param (
+        [string]$FolderPath
+    )
+    
+    $size = (Get-ChildItem -Path $FolderPath -Recurse -File -ErrorAction SilentlyContinue | 
+             Measure-Object -Property Length -Sum).Sum / 1MB
+    return [math]::Round($size, 2)
+}
+
+# Función para limpiar una carpeta específica
+Function Clean-Folder {
+    param (
+        [string]$FolderPath,
+        [int]$DaysOld = 2
+    )
+    
+    if (!(Test-Path $FolderPath)) {
+        return 0
+    }
+    
+    $folderSize = Get-FolderSizeMB -FolderPath $FolderPath
+    Write-Host "Limpiando $FolderPath ($folderSize MB)..." -ForegroundColor Yellow
+    
+    try {
+        Get-ChildItem -Path $FolderPath -Recurse -Force -ErrorAction SilentlyContinue | 
+            Where-Object { ($_.CreationTime -lt (Get-Date).AddDays(-$DaysOld)) -and (!$_.PSIsContainer) } | 
+            Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
+        return $folderSize
+    } catch {
+        Handle-Error -Operation "limpiar" -ItemName $FolderPath -ErrorRecord $_ -FailedCounter $null
+        return 0
+    }
+}
+
 Function CleanTempFiles {
     Write-Host "Limpiando archivos temporales..." -ForegroundColor Cyan
     
@@ -382,22 +492,7 @@ Function CleanTempFiles {
     $totalCleaned = 0
     
     foreach ($folder in $tempFolders) {
-        if (Test-Path $folder) {
-            $folderSize = (Get-ChildItem -Path $folder -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum / 1MB
-            $folderSize = [math]::Round($folderSize, 2)
-            
-            Write-Host "Limpiando $folder ($folderSize MB)..." -ForegroundColor Yellow
-            
-            try {
-                Get-ChildItem -Path $folder -Recurse -Force -ErrorAction SilentlyContinue | 
-                    Where-Object { ($_.CreationTime -lt (Get-Date).AddDays(-2)) -and (!$_.PSIsContainer) } | 
-                    Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
-                
-                $totalCleaned += $folderSize
-            } catch {
-                Write-Warning "Error al limpiar $folder"
-            }
-        }
+        $totalCleaned += Clean-Folder -FolderPath $folder
     }
     
     Write-Host "Limpieza completada. Se liberaron aproximadamente $totalCleaned MB de espacio." -ForegroundColor Green
@@ -467,7 +562,7 @@ $CheckUpdates.width              = 460
 $CheckUpdates.height             = 30
 $CheckUpdates.Anchor             = 'top,right,left'
 $CheckUpdates.location           = New-Object System.Drawing.Point(10,600)
-$CheckUpdates.Font               = New-Object System.Drawing.Font('Consolas',9,"Bold")
+$CheckUpdates.Font               = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]([System.Drawing.FontStyle]::Bold))
 $CheckUpdates.ForeColor          = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
 $CheckUpdates.BackColor          = [System.Drawing.ColorTranslator]::FromHtml("#0063B1")
 $CheckUpdates.Add_Click({ 
@@ -491,7 +586,7 @@ $CustomizeBlacklist.width       = 460
 $CustomizeBlacklist.height      = 30
 $CustomizeBlacklist.Anchor      = 'top,right,left'
 $CustomizeBlacklist.location    = New-Object System.Drawing.Point(10,40)
-$CustomizeBlacklist.Font        = New-Object System.Drawing.Font('Consolas',9)
+$CustomizeBlacklist.Font        = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
 $CustomizeBlacklist.ForeColor   = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
 $CustomizeBlacklist.BackColor   = [System.Drawing.ColorTranslator]::FromHtml("#2b5797")
 
@@ -502,7 +597,7 @@ $RemoveAllBloatware.width        = 460
 $RemoveAllBloatware.height       = 30
 $RemoveAllBloatware.Anchor       = 'top,right,left'
 $RemoveAllBloatware.location     = New-Object System.Drawing.Point(10,80)
-$RemoveAllBloatware.Font         = New-Object System.Drawing.Font('Consolas',9,"Bold")
+$RemoveAllBloatware.Font         = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]([System.Drawing.FontStyle]::Bold))
 $RemoveAllBloatware.ForeColor    = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
 $RemoveAllBloatware.BackColor    = [System.Drawing.ColorTranslator]::FromHtml("#c50f1f")
 
@@ -513,7 +608,7 @@ $RemoveBlacklistedBloatware.width           = 460
 $RemoveBlacklistedBloatware.height          = 30
 $RemoveBlacklistedBloatware.Anchor          = 'top,right,left'
 $RemoveBlacklistedBloatware.location        = New-Object System.Drawing.Point(10,120)
-$RemoveBlacklistedBloatware.Font            = New-Object System.Drawing.Font('Consolas',9)
+$RemoveBlacklistedBloatware.Font            = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
 $RemoveBlacklistedBloatware.ForeColor       = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
 $RemoveBlacklistedBloatware.BackColor       = [System.Drawing.ColorTranslator]::FromHtml("#107c10")
 
@@ -534,7 +629,7 @@ $RevertChanges.width              = 460
 $RevertChanges.height             = 30
 $RevertChanges.Anchor             = 'top,right,left'
 $RevertChanges.location           = New-Object System.Drawing.Point(10,40)
-$RevertChanges.Font               = New-Object System.Drawing.Font('Consolas',9,"Bold")
+$RevertChanges.Font               = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]([System.Drawing.FontStyle]::Bold))
 $RevertChanges.ForeColor          = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
 $RevertChanges.BackColor          = [System.Drawing.ColorTranslator]::FromHtml("#5c2d91")
 
@@ -555,7 +650,7 @@ $EnableCortana.width             = 133
 $EnableCortana.height            = 30
 $EnableCortana.Anchor            = 'top,right,left'
 $EnableCortana.location          = New-Object System.Drawing.Point(10,40)
-$EnableCortana.Font              = New-Object System.Drawing.Font('Consolas',9)
+$EnableCortana.Font              = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
 $EnableCortana.ForeColor         = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
 $DisableCortana                  = New-Object system.Windows.Forms.Button
@@ -565,7 +660,7 @@ $DisableCortana.width            = 133
 $DisableCortana.height           = 30
 $DisableCortana.Anchor           = 'top,right,left'
 $DisableCortana.location         = New-Object System.Drawing.Point(10,80)
-$DisableCortana.Font             = New-Object System.Drawing.Font('Consolas',9)
+$DisableCortana.Font             = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
 $DisableCortana.ForeColor        = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
 $Edge                            = New-Object system.Windows.Forms.Label
@@ -585,7 +680,7 @@ $EnableEdgePDFTakeover.width     = 134
 $EnableEdgePDFTakeover.height    = 30
 $EnableEdgePDFTakeover.Anchor    = 'top,right,left'
 $EnableEdgePDFTakeover.location  = New-Object System.Drawing.Point(10,40)
-$EnableEdgePDFTakeover.Font      = New-Object System.Drawing.Font('Consolas',9)
+$EnableEdgePDFTakeover.Font      = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
 $EnableEdgePDFTakeover.ForeColor  = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
 $DisableEdgePDFTakeover             = New-Object system.Windows.Forms.Button
@@ -595,7 +690,7 @@ $DisableEdgePDFTakeover.width       = 134
 $DisableEdgePDFTakeover.height      = 30
 $DisableEdgePDFTakeover.Anchor      = 'top,right,left'
 $DisableEdgePDFTakeover.location    = New-Object System.Drawing.Point(10,80)
-$DisableEdgePDFTakeover.Font        = New-Object System.Drawing.Font('Consolas',9)
+$DisableEdgePDFTakeover.Font        = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
 $DisableEdgePDFTakeover.ForeColor   = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
 $Theme                           = New-Object system.Windows.Forms.Label
@@ -615,7 +710,7 @@ $EnableDarkMode.width            = 133
 $EnableDarkMode.height           = 30
 $EnableDarkMode.Anchor           = 'top,right,left'
 $EnableDarkMode.location         = New-Object System.Drawing.Point(10,40)
-$EnableDarkMode.Font             = New-Object System.Drawing.Font('Consolas',9)
+$EnableDarkMode.Font             = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
 $EnableDarkMode.ForeColor        = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
 $DisableDarkMode                 = New-Object system.Windows.Forms.Button
@@ -625,7 +720,7 @@ $DisableDarkMode.width           = 133
 $DisableDarkMode.height          = 30
 $DisableDarkMode.Anchor          = 'top,right,left'
 $DisableDarkMode.location        = New-Object System.Drawing.Point(10,80)
-$DisableDarkMode.Font            = New-Object System.Drawing.Font('Consolas',9)
+$DisableDarkMode.Font            = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
 $DisableDarkMode.ForeColor       = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
 $Other                           = New-Object system.Windows.Forms.Label
@@ -645,7 +740,7 @@ $RemoveOnedrive.width            = 225
 $RemoveOnedrive.height           = 30
 $RemoveOnedrive.Anchor           = 'top,right,left'
 $RemoveOnedrive.location         = New-Object System.Drawing.Point(10,40)
-$RemoveOnedrive.Font             = New-Object System.Drawing.Font('Consolas',9)
+$RemoveOnedrive.Font             = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
 $RemoveOnedrive.ForeColor        = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
 $UnpinStartMenuTiles             = New-Object system.Windows.Forms.Button
@@ -655,7 +750,7 @@ $UnpinStartMenuTiles.width       = 225
 $UnpinStartMenuTiles.height      = 30
 $UnpinStartMenuTiles.Anchor      = 'top,right,left'
 $UnpinStartMenuTiles.location    = New-Object System.Drawing.Point(245,40)
-$UnpinStartMenuTiles.Font        = New-Object System.Drawing.Font('Consolas',9)
+$UnpinStartMenuTiles.Font        = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
 $UnpinStartMenuTiles.ForeColor   = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
 $DisableTelemetry                = New-Object system.Windows.Forms.Button
@@ -665,7 +760,7 @@ $DisableTelemetry.width          = 225
 $DisableTelemetry.height         = 30
 $DisableTelemetry.Anchor         = 'top,right,left'
 $DisableTelemetry.location       = New-Object System.Drawing.Point(10,80)
-$DisableTelemetry.Font           = New-Object System.Drawing.Font('Consolas',9)
+$DisableTelemetry.Font           = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
 $DisableTelemetry.ForeColor      = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
 $RemoveRegkeys                   = New-Object system.Windows.Forms.Button
@@ -675,7 +770,7 @@ $RemoveRegkeys.width             = 225
 $RemoveRegkeys.height            = 30
 $RemoveRegkeys.Anchor            = 'top,right,left'
 $RemoveRegkeys.location          = New-Object System.Drawing.Point(245,80)
-$RemoveRegkeys.Font              = New-Object System.Drawing.Font('Consolas',9)
+$RemoveRegkeys.Font              = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
 $RemoveRegkeys.ForeColor         = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
 $RestoreWhitelistedApps          = New-Object system.Windows.Forms.Button
@@ -685,7 +780,7 @@ $RestoreWhitelistedApps.width    = 225
 $RestoreWhitelistedApps.height   = 30
 $RestoreWhitelistedApps.Anchor   = 'top,right,left'
 $RestoreWhitelistedApps.location = New-Object System.Drawing.Point(10,120)
-$RestoreWhitelistedApps.Font     = New-Object System.Drawing.Font('Consolas',9)
+$RestoreWhitelistedApps.Font     = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
 $RestoreWhitelistedApps.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 $RestoreWhitelistedApps.Add_Click( {
     Write-Host "`n`n`n`n`n`n`n`n`n`n`n`n`n`n`n`n`nRestoring important whitelisted apps.`n"
@@ -700,7 +795,7 @@ $InstallNet35.width              = 225
 $InstallNet35.height             = 30
 $InstallNet35.Anchor             = 'top,right,left'
 $InstallNet35.location           = New-Object System.Drawing.Point(245,120)
-$InstallNet35.Font               = New-Object System.Drawing.Font('Consolas',9)
+$InstallNet35.Font               = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
 $InstallNet35.ForeColor          = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
 $Win11Features                   = New-Object system.Windows.Forms.Button
@@ -710,7 +805,7 @@ $Win11Features.width             = 460
 $Win11Features.height            = 30
 $Win11Features.Anchor            = 'top,right,left'
 $Win11Features.location          = New-Object System.Drawing.Point(10,160)
-$Win11Features.Font              = New-Object System.Drawing.Font('Consolas',9)
+$Win11Features.Font              = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
 $Win11Features.ForeColor         = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 $Win11Features.Add_Click({ 
     Write-Host "`n`n`n`n`n`n`n`n`n`n`n`n`n`n`n`n`nAplicando ajustes específicos para Windows 11.`n"
@@ -726,7 +821,7 @@ $CleanTemp.width                 = 460
 $CleanTemp.height                = 30
 $CleanTemp.Anchor                = 'top,right,left'
 $CleanTemp.location              = New-Object System.Drawing.Point(10,200)
-$CleanTemp.Font                  = New-Object System.Drawing.Font('Consolas',9,"Bold")
+$CleanTemp.Font                  = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]([System.Drawing.FontStyle]::Bold))
 $CleanTemp.ForeColor             = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
 $CleanTemp.BackColor             = [System.Drawing.ColorTranslator]::FromHtml("#0078d7")
 $CleanTemp.Add_Click({ 
@@ -789,7 +884,7 @@ $CustomizeBlacklist.Add_Click( {
         $SaveList.width                 = 560
         $SaveList.height                = 30
         $SaveList.Location              = New-Object System.Drawing.Point(10, 530)
-        $SaveList.Font                  = New-Object System.Drawing.Font('Consolas',9)
+        $SaveList.Font                  = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
         $SaveList.ForeColor             = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
         $CustomizeForm.controls.AddRange(@($SaveList,$ListPanel))
@@ -840,7 +935,7 @@ $CustomizeBlacklist.Add_Click( {
             $label = New-Object System.Windows.Forms.Label
             $label.Location = New-Object System.Drawing.Point(-10, (2 + $position * 25))
             $label.Text = $notes
-            $label.Font = New-Object System.Drawing.Font('Consolas',8)
+            $label.Font = New-Object System.Drawing.Font('Consolas',8,[System.Drawing.FontStyle]::Regular)
             $label.Width = 260
             $label.Height = 27
             $Label.TextAlign = [System.Drawing.ContentAlignment]::TopRight
@@ -849,7 +944,7 @@ $CustomizeBlacklist.Add_Click( {
 
             $Checkbox = New-Object System.Windows.Forms.CheckBox
             $Checkbox.Text = $appName
-            $CheckBox.Font = New-Object System.Drawing.Font('Consolas',8)
+            $CheckBox.Font = New-Object System.Drawing.Font('Consolas',8,[System.Drawing.FontStyle]::Regular)
             $CheckBox.FlatStyle = 'Flat'
             $CheckBox.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
             $Checkbox.Location = New-Object System.Drawing.Point(268, (0 + $position * 25))
