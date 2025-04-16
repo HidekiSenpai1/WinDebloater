@@ -265,37 +265,60 @@ Function Restore-AppPackage {
     }
 }
 
+# Función para buscar aplicaciones que coincidan con un patrón
+Function Find-MatchingApps {
+    param (
+        [string]$Pattern,
+        [object[]]$AppCollection,
+        [string]$PropertyName = "Name"
+    )
+    
+    return $AppCollection | Where-Object { $_.$PropertyName -match $Pattern }
+}
+
+# Función para procesar la restauración de aplicaciones
+Function Process-AppRestoration {
+    param (
+        [string]$AppPattern,
+        [object[]]$ProvisionedApps,
+        [ref]$RestoredCounter,
+        [ref]$FailedCounter
+    )
+    
+    $MatchingProvisionedApps = Find-MatchingApps -Pattern $AppPattern -AppCollection $ProvisionedApps -PropertyName "DisplayName"
+    
+    if ($MatchingProvisionedApps.Count -gt 0) {
+        foreach ($ProvisionedApp in $MatchingProvisionedApps) {
+            Restore-AppPackage -ProvisionedApp $ProvisionedApp -RestoredCounter $RestoredCounter -FailedCounter $FailedCounter
+        }
+        return $true
+    }
+    
+    # No se encontraron aplicaciones aprovisionadas para restaurar
+    Write-Host "La aplicación $AppPattern no se encontró en los paquetes aprovisionados. Intenta reinstalarla desde la Microsoft Store." -ForegroundColor Yellow
+    return $false
+}
+
 # Function to fix WhiteListed Apps that were removed
 Function FixWhitelistedApps {
     Write-Host "Comprobando si se eliminaron aplicaciones de la lista blanca y restaurándolas..." -ForegroundColor Cyan
     
-    # Obtener todas las aplicaciones aprovisionadas
+    # Obtener todas las aplicaciones aprovisionadas y las instaladas en una sola operación
     $Packages = Get-AppxProvisionedPackage -Online
-    
-    # Obtener todas las aplicaciones de la lista blanca que fueron eliminadas
-    $WhitelistedApps = $global:WhiteListedApps
     $InstalledApps = Get-AppxPackage -AllUsers | Select-Object -ExpandProperty Name
+    $WhitelistedApps = $global:WhiteListedApps
     
     $restoredCount = 0
     $failedCount = 0
     
     # Recorrer la lista de aplicaciones de la lista blanca
     foreach ($App in $WhitelistedApps) {
-        # Usar expresión regular para buscar coincidencias
-        $MatchingApps = $InstalledApps | Where-Object { $_ -match $App }
+        # Verificar si la aplicación ya está instalada
+        $MatchingApps = Find-MatchingApps -Pattern $App -AppCollection $InstalledApps
         
+        # Solo intentar restaurar si no está instalada
         if ($MatchingApps.Count -eq 0) {
-            # Buscar en los paquetes aprovisionados
-            $MatchingProvisionedApps = $Packages | Where-Object { $_.DisplayName -match $App }
-            
-            if ($MatchingProvisionedApps.Count -gt 0) {
-                foreach ($ProvisionedApp in $MatchingProvisionedApps) {
-                    Restore-AppPackage -ProvisionedApp $ProvisionedApp -RestoredCounter ([ref]$restoredCount) -FailedCounter ([ref]$failedCount)
-                }
-            } else {
-                # Intentar reinstalar desde la tienda si está disponible
-                Write-Host "La aplicación $App no se encontró en los paquetes aprovisionados. Intenta reinstalarla desde la Microsoft Store." -ForegroundColor Yellow
-            }
+            Process-AppRestoration -AppPattern $App -ProvisionedApps $Packages -RestoredCounter ([ref]$restoredCount) -FailedCounter ([ref]$failedCount)
         }
     }
     
@@ -782,10 +805,8 @@ $RestoreWhitelistedApps.Anchor   = 'top,right,left'
 $RestoreWhitelistedApps.location = New-Object System.Drawing.Point(10,120)
 $RestoreWhitelistedApps.Font     = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
 $RestoreWhitelistedApps.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
-$RestoreWhitelistedApps.Add_Click( {
-    Write-Host "`n`n`n`n`n`n`n`n`n`n`n`n`n`n`n`n`nRestoring important whitelisted apps.`n"
+$RestoreWhitelistedApps.Add_Click({
     FixWhitelistedApps
-    Write-Host "Restoration process completed!"
 })
 
 $InstallNet35                    = New-Object system.Windows.Forms.Button
@@ -807,10 +828,8 @@ $Win11Features.Anchor            = 'top,right,left'
 $Win11Features.location          = New-Object System.Drawing.Point(10,160)
 $Win11Features.Font              = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
 $Win11Features.ForeColor         = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
-$Win11Features.Add_Click({ 
-    Write-Host "`n`n`n`n`n`n`n`n`n`n`n`n`n`n`n`n`nAplicando ajustes específicos para Windows 11.`n"
+$Win11Features.Add_Click({
     HandleWindows11Features
-    Write-Host "Proceso completado!"
 })
 
 # Añade un botón para esta función
@@ -824,10 +843,8 @@ $CleanTemp.location              = New-Object System.Drawing.Point(10,200)
 $CleanTemp.Font                  = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]([System.Drawing.FontStyle]::Bold))
 $CleanTemp.ForeColor             = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
 $CleanTemp.BackColor             = [System.Drawing.ColorTranslator]::FromHtml("#0078d7")
-$CleanTemp.Add_Click({ 
-    Write-Host "`n`n`n`n`n`n`n`n`n`n`n`n`n`n`n`n`nLimpiando archivos temporales...`n"
+$CleanTemp.Add_Click({
     CleanTempFiles
-    Write-Host "Limpieza completada!"
 })
 
 $Form.controls.AddRange(@($RegistryPanel,$DebloatPanel,$CortanaPanel,$EdgePanel,$DarkThemePanel,$OtherPanel,$CheckUpdates))
