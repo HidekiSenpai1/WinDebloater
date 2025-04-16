@@ -1,7 +1,7 @@
 <!-- Open Graph Preview -->
 <meta property="og:image" content="https://raw.githubusercontent.com/HidekiSenpai1/WinDebloater/refs/heads/main/assets/og_image.jpg" />
 <meta property="og:title" content="🧹 WinDebloater" />
-<meta property="og:description" content="Herramienta para quitar bloatware y limpiar Windows" />
+<meta property="og:description" content="WinDebloater is an open-source tool designed to remove unnecessary preinstalled applications, disable telemetry, and optimize Windows 10 and Windows 11. With an intuitive graphical interface, it allows users to customize their Windows experience without the need for advanced technical knowledge." />
 
 # 🧹 WinDebloater
 
