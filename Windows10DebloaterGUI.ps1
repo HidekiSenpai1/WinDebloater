@@ -155,12 +155,12 @@ $global:WhiteListedApps = @(
 )
 
 #NonRemovable Apps that where getting attempted and the system would reject the uninstall, speeds up debloat and prevents 'initalizing' overlay when removing apps
-$NonRemovables = Get-AppxPackage -AllUsers | Where-Object { $_.NonRemovable -eq $true } | ForEach { $_.Name }
-$NonRemovables += Get-AppxPackage | Where-Object { $_.NonRemovable -eq $true } | ForEach { $_.Name }
-$NonRemovables += Get-AppxProvisionedPackage -Online | Where-Object { $_.NonRemovable -eq $true } | ForEach { $_.DisplayName }
+$NonRemovables = Get-AppxPackage -AllUsers | Where-Object { $_.NonRemovable -eq $true } | ForEach-Object { $_.Name }
+$NonRemovables += Get-AppxPackage | Where-Object { $_.NonRemovable -eq $true } | ForEach-Object { $_.Name }
+$NonRemovables += Get-AppxProvisionedPackage -Online | Where-Object { $_.NonRemovable -eq $true } | ForEach-Object { $_.DisplayName }
 $NonRemovables = $NonRemovables | Sort-Object -Unique
 
-if ($NonRemovables -eq $null ) {
+if ($null -eq $NonRemovables ) {
     # the .NonRemovable property doesn't exist until version 18xx. Use a hard-coded list instead.
     #WARNING: only use exact names here - no short names or wildcards
     $NonRemovables = @(
@@ -232,7 +232,7 @@ $global:BloatwareRegex = $global:Bloatware -join '|'
 $global:WhiteListedAppsRegex = $global:WhiteListedApps -join '|'
 
 # Función para manejar errores de forma centralizada
-Function Handle-Error {
+Function Write-ErrorLog {
     param (
         [string]$Operation,
         [string]$ItemName,
@@ -259,8 +259,9 @@ Function Restore-AppPackage {
         Add-AppxPackage -DisableDevelopmentMode -Register "$($ProvisionedApp.InstallLocation)\AppXManifest.xml" -ErrorAction Stop
         $RestoredCounter.Value++
         return $true
-    } catch {
-        Handle-Error -Operation "restaurar" -ItemName $ProvisionedApp.DisplayName -ErrorRecord $_ -FailedCounter $FailedCounter
+    }
+    catch {
+        Write-ErrorLog -Operation "restaurar" -ItemName $ProvisionedApp.DisplayName -ErrorRecord $_ -FailedCounter $FailedCounter
         return $false
     }
 }
@@ -277,7 +278,7 @@ Function Find-MatchingApps {
 }
 
 # Función para procesar la restauración de aplicaciones
-Function Process-AppRestoration {
+Function Restore-AppProvisioning {
     param (
         [string]$AppPattern,
         [object[]]$ProvisionedApps,
@@ -318,7 +319,7 @@ Function FixWhitelistedApps {
         
         # Solo intentar restaurar si no está instalada
         if ($MatchingApps.Count -eq 0) {
-            Process-AppRestoration -AppPattern $App -ProvisionedApps $Packages -RestoredCounter ([ref]$restoredCount) -FailedCounter ([ref]$failedCount)
+            Restore-AppRestoration -AppPattern $App -ProvisionedApps $Packages -RestoredCounter ([ref]$restoredCount) -FailedCounter ([ref]$failedCount)
         }
     }
     
@@ -327,7 +328,7 @@ Function FixWhitelistedApps {
 
 # Add a new function to handle Windows 11 specific features
 # Función para asegurar que existe una ruta de registro
-Function Ensure-RegistryPath {
+Function Test-RegistryPath {
     param (
         [string]$Path
     )
@@ -348,7 +349,7 @@ Function Set-RegistrySetting {
         [string]$Type
     )
     
-    Ensure-RegistryPath -Path $Path
+    Test-RegistryPath -Path $Path
     Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type $Type
 }
 
@@ -363,8 +364,8 @@ Function HandleWindows11Features {
         # Restaurar el menú contextual clásico (menú del clic derecho)
         Write-Host "Restaurando el menú contextual clásico..."
         $contextMenuPath = "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}"
-        Ensure-RegistryPath -Path $contextMenuPath
-        Ensure-RegistryPath -Path "$contextMenuPath\InprocServer32"
+        Test-RegistryPath -Path $contextMenuPath
+        Test-RegistryPath -Path "$contextMenuPath\InprocServer32"
         Set-ItemProperty -Path "$contextMenuPath\InprocServer32" -Name "(Default)" -Value "" -Type String
         
         # Ruta común para configuraciones de la barra de tareas
@@ -379,7 +380,8 @@ Function HandleWindows11Features {
         Set-RegistrySetting -Path $taskbarPath -Name "TaskbarMn" -Value 0 -Type DWord
         
         Write-Host "Ajustes de Windows 11 aplicados correctamente. Es necesario reiniciar el Explorador de Windows para que los cambios surtan efecto."
-    } else {
+    }
+    else {
         Write-Host "No se detectó Windows 11. No se aplicaron ajustes específicos."
     }
 }
@@ -393,8 +395,9 @@ Function Get-LatestVersion {
     try {
         $latestRelease = Invoke-RestMethod -Uri $RepoUrl -Method Get -ErrorAction Stop
         return $latestRelease
-    } catch {
-        Handle-Error -Operation "obtener" -ItemName "información de versión" -ErrorRecord $_ -FailedCounter $null
+    }
+    catch {
+        Write-ErrorLog -Operation "obtener" -ItemName "información de versión" -ErrorRecord $_ -FailedCounter $null
         return $null
     }
 }
@@ -431,10 +434,12 @@ Function CheckForUpdates {
         
         if ($latestVersion -gt $currentVersion) {
             Show-UpdateDialog -CurrentVersion $currentVersion -LatestVersion $latestVersion -UpdateUrl $latestRelease.html_url
-        } else {
+        }
+        else {
             Write-Host "Estás utilizando la última versión." -ForegroundColor Green
         }
-    } else {
+    }
+    else {
         Write-Host "No se pudo verificar actualizaciones." -ForegroundColor Yellow
     }
 }
@@ -456,11 +461,13 @@ Function BackupRegistry {
         if ($regExportProcess.ExitCode -eq 0) {
             Write-Host "Copia de seguridad del registro creada correctamente." -ForegroundColor Green
             return $true
-        } else {
+        }
+        else {
             Write-Host "Error al crear la copia de seguridad del registro." -ForegroundColor Red
             return $false
         }
-    } catch {
+    }
+    catch {
         Write-Host "Error al crear la copia de seguridad del registro: $_" -ForegroundColor Red
         return $false
     }
@@ -473,12 +480,12 @@ Function Get-FolderSizeMB {
     )
     
     $size = (Get-ChildItem -Path $FolderPath -Recurse -File -ErrorAction SilentlyContinue | 
-             Measure-Object -Property Length -Sum).Sum / 1MB
+        Measure-Object -Property Length -Sum).Sum / 1MB
     return [math]::Round($size, 2)
 }
 
 # Función para limpiar una carpeta específica
-Function Clean-Folder {
+Function Remove-TempFolder {
     param (
         [string]$FolderPath,
         [int]$DaysOld = 2
@@ -493,11 +500,12 @@ Function Clean-Folder {
     
     try {
         Get-ChildItem -Path $FolderPath -Recurse -Force -ErrorAction SilentlyContinue | 
-            Where-Object { ($_.CreationTime -lt (Get-Date).AddDays(-$DaysOld)) -and (!$_.PSIsContainer) } | 
-            Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
+        Where-Object { ($_.CreationTime -lt (Get-Date).AddDays(-$DaysOld)) -and (!$_.PSIsContainer) } | 
+        Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
         return $folderSize
-    } catch {
-        Handle-Error -Operation "limpiar" -ItemName $FolderPath -ErrorRecord $_ -FailedCounter $null
+    }
+    catch {
+        Write-ErrorLog -Operation "limpiar" -ItemName $FolderPath -ErrorRecord $_ -FailedCounter $null
         return 0
     }
 }
@@ -515,7 +523,7 @@ Function CleanTempFiles {
     $totalCleaned = 0
     
     foreach ($folder in $tempFolders) {
-        $totalCleaned += Clean-Folder -FolderPath $folder
+        $totalCleaned += Remove-TempFolder -FolderPath $folder
     }
     
     Write-Host "Limpieza completada. Se liberaron aproximadamente $totalCleaned MB de espacio." -ForegroundColor Green
@@ -525,335 +533,335 @@ Function CleanTempFiles {
 Add-Type -AssemblyName System.Windows.Forms
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
-$Form                            = New-Object system.Windows.Forms.Form
-$Form.ClientSize                 = New-Object System.Drawing.Point(500,650)
-$Form.StartPosition              = 'CenterScreen'
-$Form.FormBorderStyle            = 'FixedSingle'
-$Form.MinimizeBox                = $false
-$Form.MaximizeBox                = $false
-$Form.ShowIcon                   = $false
-$Form.text                       = "Windows 10/11 Debloater - by Hideki"
-$Form.TopMost                    = $false
-$Form.BackColor                  = [System.Drawing.ColorTranslator]::FromHtml("#1E1E1E")
+$Form = New-Object system.Windows.Forms.Form
+$Form.ClientSize = New-Object System.Drawing.Point(500, 650)
+$Form.StartPosition = 'CenterScreen'
+$Form.FormBorderStyle = 'FixedSingle'
+$Form.MinimizeBox = $false
+$Form.MaximizeBox = $false
+$Form.ShowIcon = $false
+$Form.text = "Windows 10/11 Debloater - by Hideki"
+$Form.TopMost = $false
+$Form.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#1E1E1E")
 
-$DebloatPanel                    = New-Object system.Windows.Forms.Panel
-$DebloatPanel.height             = 160
-$DebloatPanel.width              = 480
-$DebloatPanel.Anchor             = 'top,right,left'
-$DebloatPanel.location           = New-Object System.Drawing.Point(10,10)
-$DebloatPanel.BorderStyle        = 'FixedSingle'
+$DebloatPanel = New-Object system.Windows.Forms.Panel
+$DebloatPanel.height = 160
+$DebloatPanel.width = 480
+$DebloatPanel.Anchor = 'top,right,left'
+$DebloatPanel.location = New-Object System.Drawing.Point(10, 10)
+$DebloatPanel.BorderStyle = 'FixedSingle'
 
-$RegistryPanel                   = New-Object system.Windows.Forms.Panel
-$RegistryPanel.height            = 80
-$RegistryPanel.width             = 480
-$RegistryPanel.Anchor            = 'top,right,left'
-$RegistryPanel.location          = New-Object System.Drawing.Point(10,180)
-$RegistryPanel.BorderStyle       = 'FixedSingle'
+$RegistryPanel = New-Object system.Windows.Forms.Panel
+$RegistryPanel.height = 80
+$RegistryPanel.width = 480
+$RegistryPanel.Anchor = 'top,right,left'
+$RegistryPanel.location = New-Object System.Drawing.Point(10, 180)
+$RegistryPanel.BorderStyle = 'FixedSingle'
 
-$CortanaPanel                    = New-Object system.Windows.Forms.Panel
-$CortanaPanel.height             = 120
-$CortanaPanel.width              = 153
-$CortanaPanel.Anchor             = 'top,right,left'
-$CortanaPanel.location           = New-Object System.Drawing.Point(10,270)
-$CortanaPanel.BorderStyle        = 'FixedSingle'
+$CortanaPanel = New-Object system.Windows.Forms.Panel
+$CortanaPanel.height = 120
+$CortanaPanel.width = 153
+$CortanaPanel.Anchor = 'top,right,left'
+$CortanaPanel.location = New-Object System.Drawing.Point(10, 270)
+$CortanaPanel.BorderStyle = 'FixedSingle'
 
-$EdgePanel                       = New-Object system.Windows.Forms.Panel
-$EdgePanel.height                = 120
-$EdgePanel.width                 = 154
-$EdgePanel.Anchor                = 'top,right,left'
-$EdgePanel.location              = New-Object System.Drawing.Point(173,270)
-$EdgePanel.BorderStyle           = 'FixedSingle'
+$EdgePanel = New-Object system.Windows.Forms.Panel
+$EdgePanel.height = 120
+$EdgePanel.width = 154
+$EdgePanel.Anchor = 'top,right,left'
+$EdgePanel.location = New-Object System.Drawing.Point(173, 270)
+$EdgePanel.BorderStyle = 'FixedSingle'
 
-$DarkThemePanel                  = New-Object system.Windows.Forms.Panel
-$DarkThemePanel.height           = 120
-$DarkThemePanel.width            = 153
-$DarkThemePanel.Anchor           = 'top,right,left'
-$DarkThemePanel.location         = New-Object System.Drawing.Point(337,270)
-$DarkThemePanel.BorderStyle      = 'FixedSingle'
+$DarkThemePanel = New-Object system.Windows.Forms.Panel
+$DarkThemePanel.height = 120
+$DarkThemePanel.width = 153
+$DarkThemePanel.Anchor = 'top,right,left'
+$DarkThemePanel.location = New-Object System.Drawing.Point(337, 270)
+$DarkThemePanel.BorderStyle = 'FixedSingle'
 
-$OtherPanel                      = New-Object system.Windows.Forms.Panel
-$OtherPanel.height               = 240
-$OtherPanel.width                = 480
-$OtherPanel.Anchor               = 'top,right,left'
-$OtherPanel.location             = New-Object System.Drawing.Point(10,400)
-$OtherPanel.BorderStyle          = 'FixedSingle'
+$OtherPanel = New-Object system.Windows.Forms.Panel
+$OtherPanel.height = 240
+$OtherPanel.width = 480
+$OtherPanel.Anchor = 'top,right,left'
+$OtherPanel.location = New-Object System.Drawing.Point(10, 400)
+$OtherPanel.BorderStyle = 'FixedSingle'
 
-$CheckUpdates                    = New-Object system.Windows.Forms.Button
-$CheckUpdates.FlatStyle          = 'Flat'
-$CheckUpdates.text               = "VERIFICAR ACTUALIZACIONES"
-$CheckUpdates.width              = 460
-$CheckUpdates.height             = 30
-$CheckUpdates.Anchor             = 'top,right,left'
-$CheckUpdates.location           = New-Object System.Drawing.Point(10,600)
-$CheckUpdates.Font               = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]([System.Drawing.FontStyle]::Bold))
-$CheckUpdates.ForeColor          = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
-$CheckUpdates.BackColor          = [System.Drawing.ColorTranslator]::FromHtml("#0063B1")
+$CheckUpdates = New-Object system.Windows.Forms.Button
+$CheckUpdates.FlatStyle = 'Flat'
+$CheckUpdates.text = "VERIFICAR ACTUALIZACIONES"
+$CheckUpdates.width = 460
+$CheckUpdates.height = 30
+$CheckUpdates.Anchor = 'top,right,left'
+$CheckUpdates.location = New-Object System.Drawing.Point(10, 600)
+$CheckUpdates.Font = New-Object System.Drawing.Font('Consolas', 9, [System.Drawing.FontStyle]([System.Drawing.FontStyle]::Bold))
+$CheckUpdates.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
+$CheckUpdates.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#0063B1")
 $CheckUpdates.Add_Click({ 
-    CheckForUpdates
-})
+        CheckForUpdates
+    })
 
-$Debloat                         = New-Object system.Windows.Forms.Label
-$Debloat.text                    = "DEBLOAT OPTIONS"
-$Debloat.AutoSize                = $true
-$Debloat.width                   = 457
-$Debloat.height                  = 142
-$Debloat.Anchor                  = 'top,right,left'
-$Debloat.location                = New-Object System.Drawing.Point(10,9)
-$Debloat.Font                    = New-Object System.Drawing.Font('Consolas',15,[System.Drawing.FontStyle]([System.Drawing.FontStyle]::Bold))
-$Debloat.ForeColor               = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
+$Debloat = New-Object system.Windows.Forms.Label
+$Debloat.text = "DEBLOAT OPTIONS"
+$Debloat.AutoSize = $true
+$Debloat.width = 457
+$Debloat.height = 142
+$Debloat.Anchor = 'top,right,left'
+$Debloat.location = New-Object System.Drawing.Point(10, 9)
+$Debloat.Font = New-Object System.Drawing.Font('Consolas', 15, [System.Drawing.FontStyle]([System.Drawing.FontStyle]::Bold))
+$Debloat.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
-$CustomizeBlacklist             = New-Object system.Windows.Forms.Button
-$CustomizeBlacklist.FlatStyle   = 'Flat'
-$CustomizeBlacklist.text        = "CUSTOMISE BLOCKLIST"
-$CustomizeBlacklist.width       = 460
-$CustomizeBlacklist.height      = 30
-$CustomizeBlacklist.Anchor      = 'top,right,left'
-$CustomizeBlacklist.location    = New-Object System.Drawing.Point(10,40)
-$CustomizeBlacklist.Font        = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
-$CustomizeBlacklist.ForeColor   = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
-$CustomizeBlacklist.BackColor   = [System.Drawing.ColorTranslator]::FromHtml("#2b5797")
+$CustomizeBlacklist = New-Object system.Windows.Forms.Button
+$CustomizeBlacklist.FlatStyle = 'Flat'
+$CustomizeBlacklist.text = "CUSTOMISE BLOCKLIST"
+$CustomizeBlacklist.width = 460
+$CustomizeBlacklist.height = 30
+$CustomizeBlacklist.Anchor = 'top,right,left'
+$CustomizeBlacklist.location = New-Object System.Drawing.Point(10, 40)
+$CustomizeBlacklist.Font = New-Object System.Drawing.Font('Consolas', 9, [System.Drawing.FontStyle]::Regular)
+$CustomizeBlacklist.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
+$CustomizeBlacklist.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#2b5797")
 
-$RemoveAllBloatware              = New-Object system.Windows.Forms.Button
-$RemoveAllBloatware.FlatStyle    = 'Flat'
-$RemoveAllBloatware.text         = "REMOVE ALL BLOATWARE"
-$RemoveAllBloatware.width        = 460
-$RemoveAllBloatware.height       = 30
-$RemoveAllBloatware.Anchor       = 'top,right,left'
-$RemoveAllBloatware.location     = New-Object System.Drawing.Point(10,80)
-$RemoveAllBloatware.Font         = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]([System.Drawing.FontStyle]::Bold))
-$RemoveAllBloatware.ForeColor    = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
-$RemoveAllBloatware.BackColor    = [System.Drawing.ColorTranslator]::FromHtml("#c50f1f")
+$RemoveAllBloatware = New-Object system.Windows.Forms.Button
+$RemoveAllBloatware.FlatStyle = 'Flat'
+$RemoveAllBloatware.text = "REMOVE ALL BLOATWARE"
+$RemoveAllBloatware.width = 460
+$RemoveAllBloatware.height = 30
+$RemoveAllBloatware.Anchor = 'top,right,left'
+$RemoveAllBloatware.location = New-Object System.Drawing.Point(10, 80)
+$RemoveAllBloatware.Font = New-Object System.Drawing.Font('Consolas', 9, [System.Drawing.FontStyle]([System.Drawing.FontStyle]::Bold))
+$RemoveAllBloatware.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
+$RemoveAllBloatware.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#c50f1f")
 
-$RemoveBlacklistedBloatware                 = New-Object system.Windows.Forms.Button
-$RemoveBlacklistedBloatware.FlatStyle       = 'Flat'
-$RemoveBlacklistedBloatware.text            = "REMOVE BLOATWARE WITH CUSTOM BLOCKLIST"
-$RemoveBlacklistedBloatware.width           = 460
-$RemoveBlacklistedBloatware.height          = 30
-$RemoveBlacklistedBloatware.Anchor          = 'top,right,left'
-$RemoveBlacklistedBloatware.location        = New-Object System.Drawing.Point(10,120)
-$RemoveBlacklistedBloatware.Font            = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
-$RemoveBlacklistedBloatware.ForeColor       = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
-$RemoveBlacklistedBloatware.BackColor       = [System.Drawing.ColorTranslator]::FromHtml("#107c10")
+$RemoveBlacklistedBloatware = New-Object system.Windows.Forms.Button
+$RemoveBlacklistedBloatware.FlatStyle = 'Flat'
+$RemoveBlacklistedBloatware.text = "REMOVE BLOATWARE WITH CUSTOM BLOCKLIST"
+$RemoveBlacklistedBloatware.width = 460
+$RemoveBlacklistedBloatware.height = 30
+$RemoveBlacklistedBloatware.Anchor = 'top,right,left'
+$RemoveBlacklistedBloatware.location = New-Object System.Drawing.Point(10, 120)
+$RemoveBlacklistedBloatware.Font = New-Object System.Drawing.Font('Consolas', 9, [System.Drawing.FontStyle]::Regular)
+$RemoveBlacklistedBloatware.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
+$RemoveBlacklistedBloatware.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#107c10")
 
-$Registry                        = New-Object system.Windows.Forms.Label
-$Registry.text                   = "REGISTRY CHANGES"
-$Registry.AutoSize               = $true
-$Registry.width                  = 457
-$Registry.height                 = 142
-$Registry.Anchor                 = 'top,right,left'
-$Registry.location               = New-Object System.Drawing.Point(10,10)
-$Registry.Font                   = New-Object System.Drawing.Font('Consolas',15,[System.Drawing.FontStyle]([System.Drawing.FontStyle]::Bold))
-$Registry.ForeColor              = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
+$Registry = New-Object system.Windows.Forms.Label
+$Registry.text = "REGISTRY CHANGES"
+$Registry.AutoSize = $true
+$Registry.width = 457
+$Registry.height = 142
+$Registry.Anchor = 'top,right,left'
+$Registry.location = New-Object System.Drawing.Point(10, 10)
+$Registry.Font = New-Object System.Drawing.Font('Consolas', 15, [System.Drawing.FontStyle]([System.Drawing.FontStyle]::Bold))
+$Registry.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
-$RevertChanges                    = New-Object system.Windows.Forms.Button
-$RevertChanges.FlatStyle          = 'Flat'
-$RevertChanges.text               = "REVERT REGISTRY CHANGES"
-$RevertChanges.width              = 460
-$RevertChanges.height             = 30
-$RevertChanges.Anchor             = 'top,right,left'
-$RevertChanges.location           = New-Object System.Drawing.Point(10,40)
-$RevertChanges.Font               = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]([System.Drawing.FontStyle]::Bold))
-$RevertChanges.ForeColor          = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
-$RevertChanges.BackColor          = [System.Drawing.ColorTranslator]::FromHtml("#5c2d91")
+$RevertChanges = New-Object system.Windows.Forms.Button
+$RevertChanges.FlatStyle = 'Flat'
+$RevertChanges.text = "REVERT REGISTRY CHANGES"
+$RevertChanges.width = 460
+$RevertChanges.height = 30
+$RevertChanges.Anchor = 'top,right,left'
+$RevertChanges.location = New-Object System.Drawing.Point(10, 40)
+$RevertChanges.Font = New-Object System.Drawing.Font('Consolas', 9, [System.Drawing.FontStyle]([System.Drawing.FontStyle]::Bold))
+$RevertChanges.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
+$RevertChanges.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#5c2d91")
 
-$Cortana                         = New-Object system.Windows.Forms.Label
-$Cortana.text                    = "CORTANA"
-$Cortana.AutoSize                = $true
-$Cortana.width                   = 457
-$Cortana.height                  = 142
-$Cortana.Anchor                  = 'top,right,left'
-$Cortana.location                = New-Object System.Drawing.Point(10,10)
-$Cortana.Font                    = New-Object System.Drawing.Font('Consolas',15,[System.Drawing.FontStyle]([System.Drawing.FontStyle]::Bold))
-$Cortana.ForeColor               = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
+$Cortana = New-Object system.Windows.Forms.Label
+$Cortana.text = "CORTANA"
+$Cortana.AutoSize = $true
+$Cortana.width = 457
+$Cortana.height = 142
+$Cortana.Anchor = 'top,right,left'
+$Cortana.location = New-Object System.Drawing.Point(10, 10)
+$Cortana.Font = New-Object System.Drawing.Font('Consolas', 15, [System.Drawing.FontStyle]([System.Drawing.FontStyle]::Bold))
+$Cortana.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
-$EnableCortana                   = New-Object system.Windows.Forms.Button
-$EnableCortana.FlatStyle         = 'Flat'
-$EnableCortana.text              = "ENABLE"
-$EnableCortana.width             = 133
-$EnableCortana.height            = 30
-$EnableCortana.Anchor            = 'top,right,left'
-$EnableCortana.location          = New-Object System.Drawing.Point(10,40)
-$EnableCortana.Font              = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
-$EnableCortana.ForeColor         = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
+$EnableCortana = New-Object system.Windows.Forms.Button
+$EnableCortana.FlatStyle = 'Flat'
+$EnableCortana.text = "ENABLE"
+$EnableCortana.width = 133
+$EnableCortana.height = 30
+$EnableCortana.Anchor = 'top,right,left'
+$EnableCortana.location = New-Object System.Drawing.Point(10, 40)
+$EnableCortana.Font = New-Object System.Drawing.Font('Consolas', 9, [System.Drawing.FontStyle]::Regular)
+$EnableCortana.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
-$DisableCortana                  = New-Object system.Windows.Forms.Button
-$DisableCortana.FlatStyle        = 'Flat'
-$DisableCortana.text             = "DISABLE"
-$DisableCortana.width            = 133
-$DisableCortana.height           = 30
-$DisableCortana.Anchor           = 'top,right,left'
-$DisableCortana.location         = New-Object System.Drawing.Point(10,80)
-$DisableCortana.Font             = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
-$DisableCortana.ForeColor        = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
+$DisableCortana = New-Object system.Windows.Forms.Button
+$DisableCortana.FlatStyle = 'Flat'
+$DisableCortana.text = "DISABLE"
+$DisableCortana.width = 133
+$DisableCortana.height = 30
+$DisableCortana.Anchor = 'top,right,left'
+$DisableCortana.location = New-Object System.Drawing.Point(10, 80)
+$DisableCortana.Font = New-Object System.Drawing.Font('Consolas', 9, [System.Drawing.FontStyle]::Regular)
+$DisableCortana.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
-$Edge                            = New-Object system.Windows.Forms.Label
-$Edge.text                       = "EDGE PDF"
-$Edge.AutoSize                   = $true
-$Edge.width                      = 457
-$Edge.height                     = 142
-$Edge.Anchor                     = 'top,right,left'
-$Edge.location                   = New-Object System.Drawing.Point(10,10)
-$Edge.Font                       = New-Object System.Drawing.Font('Consolas',15,[System.Drawing.FontStyle]([System.Drawing.FontStyle]::Bold))
-$Edge.ForeColor                  = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
+$Edge = New-Object system.Windows.Forms.Label
+$Edge.text = "EDGE PDF"
+$Edge.AutoSize = $true
+$Edge.width = 457
+$Edge.height = 142
+$Edge.Anchor = 'top,right,left'
+$Edge.location = New-Object System.Drawing.Point(10, 10)
+$Edge.Font = New-Object System.Drawing.Font('Consolas', 15, [System.Drawing.FontStyle]([System.Drawing.FontStyle]::Bold))
+$Edge.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
-$EnableEdgePDFTakeover           = New-Object system.Windows.Forms.Button
+$EnableEdgePDFTakeover = New-Object system.Windows.Forms.Button
 $EnableEdgePDFTakeover.FlatStyle = 'Flat'
-$EnableEdgePDFTakeover.text      = "ENABLE"
-$EnableEdgePDFTakeover.width     = 134
-$EnableEdgePDFTakeover.height    = 30
-$EnableEdgePDFTakeover.Anchor    = 'top,right,left'
-$EnableEdgePDFTakeover.location  = New-Object System.Drawing.Point(10,40)
-$EnableEdgePDFTakeover.Font      = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
-$EnableEdgePDFTakeover.ForeColor  = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
+$EnableEdgePDFTakeover.text = "ENABLE"
+$EnableEdgePDFTakeover.width = 134
+$EnableEdgePDFTakeover.height = 30
+$EnableEdgePDFTakeover.Anchor = 'top,right,left'
+$EnableEdgePDFTakeover.location = New-Object System.Drawing.Point(10, 40)
+$EnableEdgePDFTakeover.Font = New-Object System.Drawing.Font('Consolas', 9, [System.Drawing.FontStyle]::Regular)
+$EnableEdgePDFTakeover.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
-$DisableEdgePDFTakeover             = New-Object system.Windows.Forms.Button
-$DisableEdgePDFTakeover.FlatStyle   = 'Flat'
-$DisableEdgePDFTakeover.text        = "DISABLE"
-$DisableEdgePDFTakeover.width       = 134
-$DisableEdgePDFTakeover.height      = 30
-$DisableEdgePDFTakeover.Anchor      = 'top,right,left'
-$DisableEdgePDFTakeover.location    = New-Object System.Drawing.Point(10,80)
-$DisableEdgePDFTakeover.Font        = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
-$DisableEdgePDFTakeover.ForeColor   = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
+$DisableEdgePDFTakeover = New-Object system.Windows.Forms.Button
+$DisableEdgePDFTakeover.FlatStyle = 'Flat'
+$DisableEdgePDFTakeover.text = "DISABLE"
+$DisableEdgePDFTakeover.width = 134
+$DisableEdgePDFTakeover.height = 30
+$DisableEdgePDFTakeover.Anchor = 'top,right,left'
+$DisableEdgePDFTakeover.location = New-Object System.Drawing.Point(10, 80)
+$DisableEdgePDFTakeover.Font = New-Object System.Drawing.Font('Consolas', 9, [System.Drawing.FontStyle]::Regular)
+$DisableEdgePDFTakeover.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
-$Theme                           = New-Object system.Windows.Forms.Label
-$Theme.text                      = "DARK THEME"
-$Theme.AutoSize                  = $true
-$Theme.width                     = 457
-$Theme.height                    = 142
-$Theme.Anchor                    = 'top,right,left'
-$Theme.location                  = New-Object System.Drawing.Point(10,10)
-$Theme.Font                      = New-Object System.Drawing.Font('Consolas',15,[System.Drawing.FontStyle]([System.Drawing.FontStyle]::Bold))
-$Theme.ForeColor                 = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
+$Theme = New-Object system.Windows.Forms.Label
+$Theme.text = "DARK THEME"
+$Theme.AutoSize = $true
+$Theme.width = 457
+$Theme.height = 142
+$Theme.Anchor = 'top,right,left'
+$Theme.location = New-Object System.Drawing.Point(10, 10)
+$Theme.Font = New-Object System.Drawing.Font('Consolas', 15, [System.Drawing.FontStyle]([System.Drawing.FontStyle]::Bold))
+$Theme.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
-$EnableDarkMode                  = New-Object system.Windows.Forms.Button
-$EnableDarkMode.FlatStyle        = 'Flat'
-$EnableDarkMode.text             = "ENABLE"
-$EnableDarkMode.width            = 133
-$EnableDarkMode.height           = 30
-$EnableDarkMode.Anchor           = 'top,right,left'
-$EnableDarkMode.location         = New-Object System.Drawing.Point(10,40)
-$EnableDarkMode.Font             = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
-$EnableDarkMode.ForeColor        = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
+$EnableDarkMode = New-Object system.Windows.Forms.Button
+$EnableDarkMode.FlatStyle = 'Flat'
+$EnableDarkMode.text = "ENABLE"
+$EnableDarkMode.width = 133
+$EnableDarkMode.height = 30
+$EnableDarkMode.Anchor = 'top,right,left'
+$EnableDarkMode.location = New-Object System.Drawing.Point(10, 40)
+$EnableDarkMode.Font = New-Object System.Drawing.Font('Consolas', 9, [System.Drawing.FontStyle]::Regular)
+$EnableDarkMode.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
-$DisableDarkMode                 = New-Object system.Windows.Forms.Button
-$DisableDarkMode.FlatStyle       = 'Flat'
-$DisableDarkMode.text            = "DISABLE"
-$DisableDarkMode.width           = 133
-$DisableDarkMode.height          = 30
-$DisableDarkMode.Anchor          = 'top,right,left'
-$DisableDarkMode.location        = New-Object System.Drawing.Point(10,80)
-$DisableDarkMode.Font            = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
-$DisableDarkMode.ForeColor       = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
+$DisableDarkMode = New-Object system.Windows.Forms.Button
+$DisableDarkMode.FlatStyle = 'Flat'
+$DisableDarkMode.text = "DISABLE"
+$DisableDarkMode.width = 133
+$DisableDarkMode.height = 30
+$DisableDarkMode.Anchor = 'top,right,left'
+$DisableDarkMode.location = New-Object System.Drawing.Point(10, 80)
+$DisableDarkMode.Font = New-Object System.Drawing.Font('Consolas', 9, [System.Drawing.FontStyle]::Regular)
+$DisableDarkMode.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
-$Other                           = New-Object system.Windows.Forms.Label
-$Other.text                      = "OTHER CHANGES & FIXES"
-$Other.AutoSize                  = $true
-$Other.width                     = 457
-$Other.height                    = 142
-$Other.Anchor                    = 'top,right,left'
-$Other.location                  = New-Object System.Drawing.Point(10,10)
-$Other.Font                      = New-Object System.Drawing.Font('Consolas',15,[System.Drawing.FontStyle]([System.Drawing.FontStyle]::Bold))
-$Other.ForeColor                 = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
+$Other = New-Object system.Windows.Forms.Label
+$Other.text = "OTHER CHANGES & FIXES"
+$Other.AutoSize = $true
+$Other.width = 457
+$Other.height = 142
+$Other.Anchor = 'top,right,left'
+$Other.location = New-Object System.Drawing.Point(10, 10)
+$Other.Font = New-Object System.Drawing.Font('Consolas', 15, [System.Drawing.FontStyle]([System.Drawing.FontStyle]::Bold))
+$Other.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
-$RemoveOnedrive                  = New-Object system.Windows.Forms.Button
-$RemoveOnedrive.FlatStyle        = 'Flat'
-$RemoveOnedrive.text             = "UNINSTALL ONEDRIVE"
-$RemoveOnedrive.width            = 225
-$RemoveOnedrive.height           = 30
-$RemoveOnedrive.Anchor           = 'top,right,left'
-$RemoveOnedrive.location         = New-Object System.Drawing.Point(10,40)
-$RemoveOnedrive.Font             = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
-$RemoveOnedrive.ForeColor        = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
+$RemoveOnedrive = New-Object system.Windows.Forms.Button
+$RemoveOnedrive.FlatStyle = 'Flat'
+$RemoveOnedrive.text = "UNINSTALL ONEDRIVE"
+$RemoveOnedrive.width = 225
+$RemoveOnedrive.height = 30
+$RemoveOnedrive.Anchor = 'top,right,left'
+$RemoveOnedrive.location = New-Object System.Drawing.Point(10, 40)
+$RemoveOnedrive.Font = New-Object System.Drawing.Font('Consolas', 9, [System.Drawing.FontStyle]::Regular)
+$RemoveOnedrive.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
-$UnpinStartMenuTiles             = New-Object system.Windows.Forms.Button
-$UnpinStartMenuTiles.FlatStyle   = 'Flat'
-$UnpinStartMenuTiles.text        = "UNPIN TILES FROM START MENU"
-$UnpinStartMenuTiles.width       = 225
-$UnpinStartMenuTiles.height      = 30
-$UnpinStartMenuTiles.Anchor      = 'top,right,left'
-$UnpinStartMenuTiles.location    = New-Object System.Drawing.Point(245,40)
-$UnpinStartMenuTiles.Font        = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
-$UnpinStartMenuTiles.ForeColor   = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
+$UnpinStartMenuTiles = New-Object system.Windows.Forms.Button
+$UnpinStartMenuTiles.FlatStyle = 'Flat'
+$UnpinStartMenuTiles.text = "UNPIN TILES FROM START MENU"
+$UnpinStartMenuTiles.width = 225
+$UnpinStartMenuTiles.height = 30
+$UnpinStartMenuTiles.Anchor = 'top,right,left'
+$UnpinStartMenuTiles.location = New-Object System.Drawing.Point(245, 40)
+$UnpinStartMenuTiles.Font = New-Object System.Drawing.Font('Consolas', 9, [System.Drawing.FontStyle]::Regular)
+$UnpinStartMenuTiles.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
-$DisableTelemetry                = New-Object system.Windows.Forms.Button
-$DisableTelemetry.FlatStyle      = 'Flat'
-$DisableTelemetry.text           = "DISABLE TELEMETRY / TASKS"
-$DisableTelemetry.width          = 225
-$DisableTelemetry.height         = 30
-$DisableTelemetry.Anchor         = 'top,right,left'
-$DisableTelemetry.location       = New-Object System.Drawing.Point(10,80)
-$DisableTelemetry.Font           = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
-$DisableTelemetry.ForeColor      = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
+$DisableTelemetry = New-Object system.Windows.Forms.Button
+$DisableTelemetry.FlatStyle = 'Flat'
+$DisableTelemetry.text = "DISABLE TELEMETRY / TASKS"
+$DisableTelemetry.width = 225
+$DisableTelemetry.height = 30
+$DisableTelemetry.Anchor = 'top,right,left'
+$DisableTelemetry.location = New-Object System.Drawing.Point(10, 80)
+$DisableTelemetry.Font = New-Object System.Drawing.Font('Consolas', 9, [System.Drawing.FontStyle]::Regular)
+$DisableTelemetry.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
-$RemoveRegkeys                   = New-Object system.Windows.Forms.Button
-$RemoveRegkeys.FlatStyle         = 'Flat'
-$RemoveRegkeys.text              = "REMOVE BLOATWARE REGKEYS"
-$RemoveRegkeys.width             = 225
-$RemoveRegkeys.height            = 30
-$RemoveRegkeys.Anchor            = 'top,right,left'
-$RemoveRegkeys.location          = New-Object System.Drawing.Point(245,80)
-$RemoveRegkeys.Font              = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
-$RemoveRegkeys.ForeColor         = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
+$RemoveRegkeys = New-Object system.Windows.Forms.Button
+$RemoveRegkeys.FlatStyle = 'Flat'
+$RemoveRegkeys.text = "REMOVE BLOATWARE REGKEYS"
+$RemoveRegkeys.width = 225
+$RemoveRegkeys.height = 30
+$RemoveRegkeys.Anchor = 'top,right,left'
+$RemoveRegkeys.location = New-Object System.Drawing.Point(245, 80)
+$RemoveRegkeys.Font = New-Object System.Drawing.Font('Consolas', 9, [System.Drawing.FontStyle]::Regular)
+$RemoveRegkeys.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
-$RestoreWhitelistedApps          = New-Object system.Windows.Forms.Button
+$RestoreWhitelistedApps = New-Object system.Windows.Forms.Button
 $RestoreWhitelistedApps.FlatStyle = 'Flat'
-$RestoreWhitelistedApps.text     = "RESTORE IMPORTANT APPS"
-$RestoreWhitelistedApps.width    = 225
-$RestoreWhitelistedApps.height   = 30
-$RestoreWhitelistedApps.Anchor   = 'top,right,left'
-$RestoreWhitelistedApps.location = New-Object System.Drawing.Point(10,120)
-$RestoreWhitelistedApps.Font     = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
+$RestoreWhitelistedApps.text = "RESTORE IMPORTANT APPS"
+$RestoreWhitelistedApps.width = 225
+$RestoreWhitelistedApps.height = 30
+$RestoreWhitelistedApps.Anchor = 'top,right,left'
+$RestoreWhitelistedApps.location = New-Object System.Drawing.Point(10, 120)
+$RestoreWhitelistedApps.Font = New-Object System.Drawing.Font('Consolas', 9, [System.Drawing.FontStyle]::Regular)
 $RestoreWhitelistedApps.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 $RestoreWhitelistedApps.Add_Click({
-    FixWhitelistedApps
-})
+        FixWhitelistedApps
+    })
 
-$InstallNet35                    = New-Object system.Windows.Forms.Button
-$InstallNet35.FlatStyle          = 'Flat'
-$InstallNet35.text               = "INSTALL .NET V3.5"
-$InstallNet35.width              = 225
-$InstallNet35.height             = 30
-$InstallNet35.Anchor             = 'top,right,left'
-$InstallNet35.location           = New-Object System.Drawing.Point(245,120)
-$InstallNet35.Font               = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
-$InstallNet35.ForeColor          = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
+$InstallNet35 = New-Object system.Windows.Forms.Button
+$InstallNet35.FlatStyle = 'Flat'
+$InstallNet35.text = "INSTALL .NET V3.5"
+$InstallNet35.width = 225
+$InstallNet35.height = 30
+$InstallNet35.Anchor = 'top,right,left'
+$InstallNet35.location = New-Object System.Drawing.Point(245, 120)
+$InstallNet35.Font = New-Object System.Drawing.Font('Consolas', 9, [System.Drawing.FontStyle]::Regular)
+$InstallNet35.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
-$Win11Features                   = New-Object system.Windows.Forms.Button
-$Win11Features.FlatStyle         = 'Flat'
-$Win11Features.text              = "APLICAR AJUSTES WINDOWS 11"
-$Win11Features.width             = 460
-$Win11Features.height            = 30
-$Win11Features.Anchor            = 'top,right,left'
-$Win11Features.location          = New-Object System.Drawing.Point(10,160)
-$Win11Features.Font              = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
-$Win11Features.ForeColor         = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
+$Win11Features = New-Object system.Windows.Forms.Button
+$Win11Features.FlatStyle = 'Flat'
+$Win11Features.text = "APLICAR AJUSTES WINDOWS 11"
+$Win11Features.width = 460
+$Win11Features.height = 30
+$Win11Features.Anchor = 'top,right,left'
+$Win11Features.location = New-Object System.Drawing.Point(10, 160)
+$Win11Features.Font = New-Object System.Drawing.Font('Consolas', 9, [System.Drawing.FontStyle]::Regular)
+$Win11Features.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 $Win11Features.Add_Click({
-    HandleWindows11Features
-})
+        HandleWindows11Features
+    })
 
 # Añade un botón para esta función
-$CleanTemp                       = New-Object system.Windows.Forms.Button
-$CleanTemp.FlatStyle             = 'Flat'
-$CleanTemp.text                  = "LIMPIAR ARCHIVOS TEMPORALES"
-$CleanTemp.width                 = 460
-$CleanTemp.height                = 30
-$CleanTemp.Anchor                = 'top,right,left'
-$CleanTemp.location              = New-Object System.Drawing.Point(10,200)
-$CleanTemp.Font                  = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]([System.Drawing.FontStyle]::Bold))
-$CleanTemp.ForeColor             = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
-$CleanTemp.BackColor             = [System.Drawing.ColorTranslator]::FromHtml("#0078d7")
+$CleanTemp = New-Object system.Windows.Forms.Button
+$CleanTemp.FlatStyle = 'Flat'
+$CleanTemp.text = "LIMPIAR ARCHIVOS TEMPORALES"
+$CleanTemp.width = 460
+$CleanTemp.height = 30
+$CleanTemp.Anchor = 'top,right,left'
+$CleanTemp.location = New-Object System.Drawing.Point(10, 200)
+$CleanTemp.Font = New-Object System.Drawing.Font('Consolas', 9, [System.Drawing.FontStyle]([System.Drawing.FontStyle]::Bold))
+$CleanTemp.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
+$CleanTemp.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#0078d7")
 $CleanTemp.Add_Click({
-    CleanTempFiles
-})
+        CleanTempFiles
+    })
 
-$Form.controls.AddRange(@($RegistryPanel,$DebloatPanel,$CortanaPanel,$EdgePanel,$DarkThemePanel,$OtherPanel,$CheckUpdates))
-$DebloatPanel.controls.AddRange(@($Debloat,$CustomizeBlacklist,$RemoveAllBloatware,$RemoveBlacklistedBloatware))
-$RegistryPanel.controls.AddRange(@($Registry,$RevertChanges))
-$CortanaPanel.controls.AddRange(@($Cortana,$EnableCortana,$DisableCortana))
-$EdgePanel.controls.AddRange(@($EnableEdgePDFTakeover,$DisableEdgePDFTakeover,$Edge))
-$DarkThemePanel.controls.AddRange(@($Theme,$DisableDarkMode,$EnableDarkMode))
-$OtherPanel.controls.AddRange(@($Other,$RemoveOnedrive,$UnpinStartMenuTiles,$DisableTelemetry,$RemoveRegkeys,$RestoreWhitelistedApps,$InstallNet35,$Win11Features,$CleanTemp))
+$Form.controls.AddRange(@($RegistryPanel, $DebloatPanel, $CortanaPanel, $EdgePanel, $DarkThemePanel, $OtherPanel, $CheckUpdates))
+$DebloatPanel.controls.AddRange(@($Debloat, $CustomizeBlacklist, $RemoveAllBloatware, $RemoveBlacklistedBloatware))
+$RegistryPanel.controls.AddRange(@($Registry, $RevertChanges))
+$CortanaPanel.controls.AddRange(@($Cortana, $EnableCortana, $DisableCortana))
+$EdgePanel.controls.AddRange(@($EnableEdgePDFTakeover, $DisableEdgePDFTakeover, $Edge))
+$DarkThemePanel.controls.AddRange(@($Theme, $DisableDarkMode, $EnableDarkMode))
+$OtherPanel.controls.AddRange(@($Other, $RemoveOnedrive, $UnpinStartMenuTiles, $DisableTelemetry, $RemoveRegkeys, $RestoreWhitelistedApps, $InstallNet35, $Win11Features, $CleanTemp))
 
 $DebloatFolder = "C:\Temp\Windows10Debloater"
 If (Test-Path $DebloatFolder) {
@@ -874,43 +882,43 @@ Checkpoint-Computer -Description "Before using W10DebloaterGUI.ps1"
 
 #region gui events {
 $CustomizeBlacklist.Add_Click( {
-        $CustomizeForm                  = New-Object System.Windows.Forms.Form
-        $CustomizeForm.ClientSize       = New-Object System.Drawing.Point(580,570)
-        $CustomizeForm.StartPosition    = 'CenterScreen'
-        $CustomizeForm.FormBorderStyle  = 'FixedSingle'
-        $CustomizeForm.MinimizeBox      = $false
-        $CustomizeForm.MaximizeBox      = $false
-        $CustomizeForm.ShowIcon         = $false
-        $CustomizeForm.Text             = "Customize Allowlist and Blocklist"
-        $CustomizeForm.TopMost          = $false
-        $CustomizeForm.AutoScroll       = $false
-        $CustomizeForm.BackColor        = [System.Drawing.ColorTranslator]::FromHtml("#252525")
+        $CustomizeForm = New-Object System.Windows.Forms.Form
+        $CustomizeForm.ClientSize = New-Object System.Drawing.Point(580, 570)
+        $CustomizeForm.StartPosition = 'CenterScreen'
+        $CustomizeForm.FormBorderStyle = 'FixedSingle'
+        $CustomizeForm.MinimizeBox = $false
+        $CustomizeForm.MaximizeBox = $false
+        $CustomizeForm.ShowIcon = $false
+        $CustomizeForm.Text = "Customize Allowlist and Blocklist"
+        $CustomizeForm.TopMost = $false
+        $CustomizeForm.AutoScroll = $false
+        $CustomizeForm.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#252525")
 
-        $ListPanel                     = New-Object system.Windows.Forms.Panel
-        $ListPanel.height              = 510
-        $ListPanel.width               = 572
-        $ListPanel.Anchor              = 'top,right,left'
-        $ListPanel.location            = New-Object System.Drawing.Point(10,10)
-        $ListPanel.AutoScroll          = $true
-        $ListPanel.BackColor           = [System.Drawing.ColorTranslator]::FromHtml("#252525")
+        $ListPanel = New-Object system.Windows.Forms.Panel
+        $ListPanel.height = 510
+        $ListPanel.width = 572
+        $ListPanel.Anchor = 'top,right,left'
+        $ListPanel.location = New-Object System.Drawing.Point(10, 10)
+        $ListPanel.AutoScroll = $true
+        $ListPanel.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#252525")
 
 
-        $SaveList                       = New-Object System.Windows.Forms.Button
-        $SaveList.FlatStyle             = 'Flat'
-        $SaveList.Text                  = "Save custom Allowlist and Blocklist to custom-lists.ps1"
-        $SaveList.width                 = 560
-        $SaveList.height                = 30
-        $SaveList.Location              = New-Object System.Drawing.Point(10, 530)
-        $SaveList.Font                  = New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Regular)
-        $SaveList.ForeColor             = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
+        $SaveList = New-Object System.Windows.Forms.Button
+        $SaveList.FlatStyle = 'Flat'
+        $SaveList.Text = "Save custom Allowlist and Blocklist to custom-lists.ps1"
+        $SaveList.width = 560
+        $SaveList.height = 30
+        $SaveList.Location = New-Object System.Drawing.Point(10, 530)
+        $SaveList.Font = New-Object System.Drawing.Font('Consolas', 9, [System.Drawing.FontStyle]::Regular)
+        $SaveList.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
 
-        $CustomizeForm.controls.AddRange(@($SaveList,$ListPanel))
+        $CustomizeForm.controls.AddRange(@($SaveList, $ListPanel))
 
         $SaveList.Add_Click( {
-               # $ErrorActionPreference = 'SilentlyContinue'
+                # $ErrorActionPreference = 'SilentlyContinue'
 
                 '$global:WhiteListedApps = @(' | Out-File -FilePath $PSScriptRoot\custom-lists.ps1 -Encoding utf8
-                @($ListPanel.controls) | ForEach {
+                @($ListPanel.controls) | ForEach-Object {
                     if ($_ -is [System.Windows.Forms.CheckBox] -and $_.Enabled -and !$_.Checked) {
                         "    ""$( $_.Text )""" | Out-File -FilePath $PSScriptRoot\custom-lists.ps1 -Append -Encoding utf8
                     }
@@ -918,7 +926,7 @@ $CustomizeBlacklist.Add_Click( {
                 ')' | Out-File -FilePath $PSScriptRoot\custom-lists.ps1 -Append -Encoding utf8
 
                 '$global:Bloatware = @(' | Out-File -FilePath $PSScriptRoot\custom-lists.ps1 -Append -Encoding utf8
-                @($ListPanel.controls) | ForEach {
+                @($ListPanel.controls) | ForEach-Object {
                     if ($_ -is [System.Windows.Forms.CheckBox] -and $_.Enabled -and $_.Checked) {
                         "    ""$($_.Text)""" | Out-File -FilePath $PSScriptRoot\custom-lists.ps1 -Append -Encoding utf8
                     }
@@ -952,7 +960,7 @@ $CustomizeBlacklist.Add_Click( {
             $label = New-Object System.Windows.Forms.Label
             $label.Location = New-Object System.Drawing.Point(-10, (2 + $position * 25))
             $label.Text = $notes
-            $label.Font = New-Object System.Drawing.Font('Consolas',8,[System.Drawing.FontStyle]::Regular)
+            $label.Font = New-Object System.Drawing.Font('Consolas', 8, [System.Drawing.FontStyle]::Regular)
             $label.Width = 260
             $label.Height = 27
             $Label.TextAlign = [System.Drawing.ContentAlignment]::TopRight
@@ -961,7 +969,7 @@ $CustomizeBlacklist.Add_Click( {
 
             $Checkbox = New-Object System.Windows.Forms.CheckBox
             $Checkbox.Text = $appName
-            $CheckBox.Font = New-Object System.Drawing.Font('Consolas',8,[System.Drawing.FontStyle]::Regular)
+            $CheckBox.Font = New-Object System.Drawing.Font('Consolas', 8, [System.Drawing.FontStyle]::Regular)
             $CheckBox.FlatStyle = 'Flat'
             $CheckBox.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#eeeeee")
             $Checkbox.Location = New-Object System.Drawing.Point(268, (0 + $position * 25))
@@ -1065,7 +1073,7 @@ $RemoveAllBloatware.Add_Click( {
 
         #This is the switch parameter for running this script as a 'silent' script, for use in MDT images or any type of mass deployment without user interaction.
 
-        Function Begin-SysPrep {
+        Function Start-SysPrep {
 
             Write-Host "Starting Sysprep Fixes"
    
@@ -1100,9 +1108,9 @@ $RemoveAllBloatware.Add_Click( {
 
         Function DebloatAll {
             #Removes AppxPackages
-            Get-AppxPackage | Where { !($_.Name -cmatch $global:WhiteListedAppsRegex) -and !($NonRemovables -cmatch $_.Name) } | Remove-AppxPackage
-            Get-AppxProvisionedPackage -Online | Where { !($_.DisplayName -cmatch $global:WhiteListedAppsRegex) -and !($NonRemovables -cmatch $_.DisplayName) } | Remove-AppxProvisionedPackage -Online
-            Get-AppxPackage -AllUsers | Where { !($_.Name -cmatch $global:WhiteListedAppsRegex) -and !($NonRemovables -cmatch $_.Name) } | Remove-AppxPackage
+            Get-AppxPackage | Where-Object { !($_.Name -cmatch $global:WhiteListedAppsRegex) -and !($NonRemovables -cmatch $_.Name) } | Remove-AppxPackage
+            Get-AppxProvisionedPackage -Online | Where-Object { !($_.DisplayName -cmatch $global:WhiteListedAppsRegex) -and !($NonRemovables -cmatch $_.DisplayName) } | Remove-AppxProvisionedPackage -Online
+            Get-AppxPackage -AllUsers | Where-Object { !($_.Name -cmatch $global:WhiteListedAppsRegex) -and !($NonRemovables -cmatch $_.Name) } | Remove-AppxPackage
         }
   
         #Creates a PSDrive to be able to access the 'HKCR' tree
@@ -1261,7 +1269,7 @@ $RemoveAllBloatware.Add_Click( {
             # https://superuser.com/a/1442733
             # Requires -RunAsAdministrator
 
-$START_MENU_LAYOUT = @"
+            $START_MENU_LAYOUT = @"
 <LayoutModificationTemplate xmlns:defaultlayout="http://schemas.microsoft.com/Start/2014/FullDefaultLayout" xmlns:start="http://schemas.microsoft.com/Start/2014/StartLayout" Version="1" xmlns:taskbar="http://schemas.microsoft.com/Start/2014/TaskbarLayout" xmlns="http://schemas.microsoft.com/Start/2014/LayoutModification">
     <LayoutOptions StartTileGroupCellWidth="6" />
     <DefaultLayoutOverride>
@@ -1272,11 +1280,10 @@ $START_MENU_LAYOUT = @"
 </LayoutModificationTemplate>
 "@
 
-            $layoutFile="C:\Windows\StartMenuLayout.xml"
+            $layoutFile = "C:\Windows\StartMenuLayout.xml"
 
             #Delete layout file if it already exists
-            If(Test-Path $layoutFile)
-            {
+            If (Test-Path $layoutFile) {
                 Remove-Item $layoutFile
             }
 
@@ -1286,10 +1293,10 @@ $START_MENU_LAYOUT = @"
             $regAliases = @("HKLM", "HKCU")
 
             #Assign the start layout and force it to apply with "LockedStartLayout" at both the machine and user level
-            foreach ($regAlias in $regAliases){
+            foreach ($regAlias in $regAliases) {
                 $basePath = $regAlias + ":\SOFTWARE\Policies\Microsoft\Windows"
                 $keyPath = $basePath + "\Explorer" 
-                IF(!(Test-Path -Path $keyPath)) { 
+                IF (!(Test-Path -Path $keyPath)) { 
                     New-Item -Path $basePath -Name "Explorer"
                 }
                 Set-ItemProperty -Path $keyPath -Name "LockedStartLayout" -Value 1
@@ -1303,7 +1310,7 @@ $START_MENU_LAYOUT = @"
             Start-Sleep -s 5
 
             #Enable the ability to pin items again by disabling "LockedStartLayout"
-            foreach ($regAlias in $regAliases){
+            foreach ($regAlias in $regAliases) {
                 $basePath = $regAlias + ":\SOFTWARE\Policies\Microsoft\Windows"
                 $keyPath = $basePath + "\Explorer" 
                 Set-ItemProperty -Path $keyPath -Name "LockedStartLayout" -Value 0
@@ -1327,7 +1334,7 @@ $START_MENU_LAYOUT = @"
         }
   
         Write-Host "Initiating Sysprep"
-        Begin-SysPrep
+        Start-SysPrep
         Write-Host "Removing bloatware apps."
         DebloatAll
         Write-Host "Removing leftover bloatware registry keys."
@@ -1349,7 +1356,7 @@ $RevertChanges.Add_Click( {
         #This function will revert the changes you made when running the Start-Debloat function.
         
         #This line reinstalls all of the bloatware that was removed
-        Get-AppxPackage -AllUsers | ForEach { Add-AppxPackage -Verbose -DisableDevelopmentMode -Register "$($_.InstallLocation)\AppXManifest.xml" } 
+        Get-AppxPackage -AllUsers | ForEach-Object { Add-AppxPackage -Verbose -DisableDevelopmentMode -Register "$($_.InstallLocation)\AppXManifest.xml" } 
     
         #Tells Windows to enable your advertising information.    
         Write-Host "Re-enabling key to show advertisement information"
@@ -1768,9 +1775,9 @@ $UnpinStartMenuTiles.Add_Click( {
         (New-Object -Com Shell.Application).
         NameSpace('shell:::{4234d49b-0245-4df3-b780-3893943456e1}').
         Items() |
-        % { $_.Verbs() } |
-        ? { $_.Name -match 'Un.*pin from Start' } |
-        % { $_.DoIt() }
+        ForEach-Object { $_.Verbs() } |
+        Where-Object { $_.Name -match 'Un.*pin from Start' } |
+        ForEach-Object { $_.DoIt() }
     })
 
 $RemoveOnedrive.Add_Click( { 

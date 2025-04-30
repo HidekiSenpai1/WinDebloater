@@ -11,7 +11,8 @@ function Write-ColorMessage {
 function Test-InternetConnection {
     if (Test-Connection -ComputerName github.com -Count 1 -Quiet) {
         Write-ColorMessage "Conexión a Internet disponible. El problema puede ser con el servidor o la URL." "Yellow"
-    } else {
+    }
+    else {
         Write-ColorMessage "No hay conexión a Internet. Verifique su conexión e intente nuevamente." "Red"
     }
 }
@@ -35,7 +36,7 @@ function Show-TroubleshootingInfo {
 }
 
 # Función para manejar errores
-function Handle-Error {
+function Write-ErrorHandler {
     param (
         [System.Management.Automation.ErrorRecord]$ErrorRecord,
         [string]$Context
@@ -47,7 +48,8 @@ function Handle-Error {
         $ErrorRecord.Exception.Message -like "*No se puede conectar*") {
         Write-ColorMessage "Comprobando conexión a Internet..." "Yellow"
         Test-InternetConnection
-    } else {
+    }
+    else {
         Show-TroubleshootingInfo
     }
     
@@ -55,7 +57,7 @@ function Handle-Error {
 }
 
 # Función para corregir problemas de Font en el script
-function Fix-FontIssues {
+function Repair-FontIssues {
     param (
         [string]$ScriptPath
     )
@@ -82,7 +84,8 @@ function Start-Debloater {
     try {
         Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force -ErrorAction Stop
         Write-ColorMessage "Política de ejecución establecida correctamente para esta sesión." "Green"
-    } catch {
+    }
+    catch {
         Write-ColorMessage "ADVERTENCIA: No se pudo establecer la política de ejecución. Algunos comandos podrían fallar." "Yellow"
         Write-ColorMessage "Error: $_" "Red"
     }
@@ -95,7 +98,8 @@ function Start-Debloater {
             # Ejecutando desde memoria (irm | iex)
             $startUrl = "https://raw.githubusercontent.com/hidekisenpai1/WinDebloater/main/start.ps1"
             Start-Process powershell.exe "-NoProfile -Command `"Invoke-RestMethod -Uri '$startUrl' | Invoke-Expression`"" -Verb RunAs
-        } else {
+        }
+        else {
             # Ejecutando desde un archivo
             Start-Process powershell.exe "-NoProfile -File `"$PSCommandPath`"" -Verb RunAs
         }
@@ -121,7 +125,7 @@ function Start-Debloater {
         Add-Type -AssemblyName PresentationFramework
         
         # Corregir el problema de ambigüedad de Font en el script
-        Fix-FontIssues -ScriptPath $mainScript
+        Repair-FontIssues -ScriptPath $mainScript
         
         # Verificar que el script existe antes de ejecutarlo
         if (Test-Path $mainScript) {
@@ -130,15 +134,18 @@ function Start-Debloater {
                 # Ejecutar el script con manejo de errores explícito
                 & $mainScript -ErrorAction Stop
                 Write-ColorMessage "`nScript ejecutado correctamente." "Green"
-            } catch {
-                Handle-Error -ErrorRecord $_ -Context "al ejecutar el script"
             }
-        } else {
+            catch {
+                Write-ErrorHandler -ErrorRecord $_ -Context "al ejecutar el script"
+            }
+        }
+        else {
             Write-ColorMessage "Error: No se pudo encontrar el script descargado en $mainScript" "Red"
             Wait-KeyAndExit
         }
-    } catch {
-        Handle-Error -ErrorRecord $_ -Context "al descargar el script"
+    }
+    catch {
+        Write-ErrorHandler -ErrorRecord $_ -Context "al descargar el script"
     }
 }
 
